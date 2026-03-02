@@ -1,0 +1,19 @@
+{
+  "name": "reactotron-llm-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reactotron-compatible proxy that writes events to JSONL for LLM agents",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "dashboard:dev": "bun run --cwd dashboard dev",
+    "dashboard:build": "bun run --cwd dashboard build",
+    "dashboard:preview": "bun run --cwd dashboard preview"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "dependencies": {
+    "hono": "^4.7.2"
+  }
+}

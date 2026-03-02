@@ -1,0 +1,13 @@
+node_modules
+dashboard/node_modules
+dashboard/dist
+.reactotron-llm
+.reactotron-llm/
+.env
+.env.*
+!.env.example
+dashboard/.env
+dashboard/.env.*
+!dashboard/.env.example
+npm-debug.log*
+.DS_Store
