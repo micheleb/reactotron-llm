@@ -35,6 +35,7 @@ type EventsResponse = {
   ok: boolean
   count: number
   events: CuratedEvent[]
+  hasMore: boolean
 }
 
 type HealthResponse = {
@@ -110,6 +111,9 @@ export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [stateText, setStateText] = useState('No state loaded yet')
   const [wsStatus, setWsStatus] = useState<'connecting' | 'open' | 'closed'>('connecting')
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [serverLoadedCount, setServerLoadedCount] = useState(0)
   const [typeFilter, setTypeFilter] = useState('')
   const [levelFilter, setLevelFilter] = useState('')
   const [urlFilter, setUrlFilter] = useState('')
@@ -122,10 +126,30 @@ export default function App() {
   }
 
   async function loadEvents() {
-    const res = await fetch(`${apiBase}/api/events?limit=300`)
+    const res = await fetch(`${apiBase}/api/events?limit=1000`)
     const json = (await res.json()) as EventsResponse
     if (!json.ok) return
     setEvents([...json.events].sort(byNewest))
+    setHasMore(json.hasMore)
+    setServerLoadedCount(json.count)
+  }
+
+  async function loadMore() {
+    setLoadingMore(true)
+    try {
+      const res = await fetch(`${apiBase}/api/events?limit=500&offset=${serverLoadedCount}`)
+      const json = (await res.json()) as EventsResponse
+      if (!json.ok) return
+      setEvents((current) => {
+        const existingKeys = new Set(current.map((e) => `${e.ts}|${e.type}`))
+        const newEvents = json.events.filter((e) => !existingKeys.has(`${e.ts}|${e.type}`))
+        return [...current, ...newEvents].sort(byNewest)
+      })
+      setHasMore(json.hasMore)
+      setServerLoadedCount((prev) => prev + json.count)
+    } finally {
+      setLoadingMore(false)
+    }
   }
 
   async function loadState() {
@@ -165,7 +189,7 @@ export default function App() {
       try {
         const parsed = JSON.parse(message.data)
         if (parsed.kind === 'event' && parsed.event) {
-          setEvents((current) => [parsed.event, ...current].sort(byNewest).slice(0, 500))
+          setEvents((current) => [parsed.event, ...current].sort(byNewest))
         }
         if (parsed.kind === 'events-reset') {
           setEvents([])
@@ -457,6 +481,18 @@ export default function App() {
                   })()
                 ))}
               </VStack>
+              {hasMore ? (
+                <Button
+                  mt={4}
+                  w="100%"
+                  size="sm"
+                  variant="outline"
+                  isLoading={loadingMore}
+                  onClick={() => loadMore().catch(() => undefined)}
+                >
+                  Load more
+                </Button>
+              ) : null}
             </Box>
           </GridItem>
 
