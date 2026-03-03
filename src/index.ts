@@ -1,56 +1,42 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { createBunWebSocket } from 'hono/bun'
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
+
+import type { CuratedEvent } from './shared/types'
+import {
+  asObject,
+  curateEvent,
+  firstString,
+  getByPath,
+  getMessageType,
+  inferState,
+} from './shared/curate'
+import {
+  closeSession,
+  createSession,
+  deleteAllEvents,
+  getRecentEvents,
+  initDb,
+  insertRawEvent,
+  updateSessionMetadata,
+} from './db'
 
 const PORT = Number(Bun.env.PORT ?? 9090)
 const DASHBOARD_WS_PORT = Number(Bun.env.DASHBOARD_WS_PORT ?? 9092)
 const OUTPUT_DIR = path.resolve(process.cwd(), '.reactotron-llm')
-const APP_LOG_PATH = path.join(OUTPUT_DIR, 'app-log.jsonl')
+const DB_PATH = path.join(OUTPUT_DIR, 'reactotron.db')
 const STATE_PATH = path.join(OUTPUT_DIR, 'state.json')
-
-type JsonObject = Record<string, unknown>
 
 type AppWsData = {
   clientId: string
+  sessionId: string
 }
 
 type DashboardWsData = {
   clientId: string
-}
-
-type CuratedEvent = {
-  ts: string
-  type: string
-  level?: string
-  message?: string
-  stack?: string
-  action?: {
-    type?: string
-    name?: string
-    path?: string
-    displayName?: string
-    payload?: unknown
-  }
-  changed?: string[]
-  network?: {
-    method?: string
-    url?: string
-    status?: number
-    durationMs?: number
-    requestHeaders?: unknown
-    responseHeaders?: unknown
-    requestBody?: unknown
-    responseBody?: unknown
-    error?: string
-  }
-  benchmark?: {
-    title?: string
-    steps?: unknown
-  }
-  details?: JsonObject
 }
 
 const appClients = new Set<ServerWebSocket<AppWsData>>()
@@ -58,523 +44,14 @@ const dashboardClients = new Set<ServerWebSocket<DashboardWsData>>()
 let latestState: unknown = null
 let latestStateAt: string | null = null
 
-function asObject(value: unknown): JsonObject | undefined {
-  if (value && typeof value === 'object') return value as JsonObject
-  return undefined
-}
-
-function getByPath(obj: unknown, pathExpr: string): unknown {
-  let cursor: unknown = obj
-  for (const key of pathExpr.split('.')) {
-    const current = asObject(cursor)
-    if (!current) return undefined
-    cursor = current[key]
-  }
-  return cursor
-}
-
-function firstString(obj: unknown, paths: string[]): string | undefined {
-  for (const p of paths) {
-    const value = getByPath(obj, p)
-    if (typeof value === 'string' && value.length > 0) return value
-  }
-  return undefined
-}
-
-function firstNumber(obj: unknown, paths: string[]): number | undefined {
-  for (const p of paths) {
-    const value = getByPath(obj, p)
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-  }
-  return undefined
-}
-
-function firstValue(obj: unknown, paths: string[]): unknown {
-  for (const p of paths) {
-    const value = getByPath(obj, p)
-    if (value !== undefined) return value
-  }
-  return undefined
-}
-
-function maybeParseJsonString(value: unknown): unknown {
-  if (typeof value !== 'string') return value
-  const trimmed = value.trim()
-  if (
-    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-    (trimmed.startsWith('[') && trimmed.endsWith(']'))
-  ) {
-    try {
-      return JSON.parse(trimmed)
-    } catch {
-      return value
-    }
-  }
-  return value
-}
-
-function normalizeActionPayload(value: unknown): unknown {
-  const parsed = maybeParseJsonString(value)
-  if (Array.isArray(parsed)) {
-    if (parsed.length === 0) return undefined
-    if (parsed.length === 1) return normalizeActionPayload(parsed[0])
-    return normalizeActionPayload(parsed[0])
-  }
-  return parsed
-}
-
-function formatActionDisplayName(pathValue: string | undefined, nameValue: string | undefined): string | undefined {
-  if (!nameValue) return undefined
-  if (!pathValue) return `${nameValue}()`
-
-  const trimmedPath = pathValue.startsWith('/') ? pathValue.slice(1) : pathValue
-  if (!trimmedPath) return `${nameValue}()`
-  return `${trimmedPath}.${nameValue}()`
-}
-
-function deepFindByKeys(
-  root: unknown,
-  keys: string[],
-  maxDepth = 6,
-  maxNodes = 3000,
-): unknown {
-  const wanted = new Set(keys.map((k) => k.toLowerCase()))
-  const queue: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }]
-  const seen = new Set<object>()
-  let visited = 0
-
-  while (queue.length > 0 && visited < maxNodes) {
-    const current = queue.shift()
-    if (!current) break
-    const { value, depth } = current
-    visited += 1
-
-    if (value === null || value === undefined || depth > maxDepth) continue
-
-    if (Array.isArray(value)) {
-      for (const item of value) queue.push({ value: item, depth: depth + 1 })
-      continue
-    }
-
-    if (typeof value !== 'object') continue
-    if (seen.has(value)) continue
-    seen.add(value)
-
-    const obj = value as JsonObject
-    for (const [key, nested] of Object.entries(obj)) {
-      if (wanted.has(key.toLowerCase())) {
-        return nested
-      }
-      queue.push({ value: nested, depth: depth + 1 })
-    }
-  }
-
-  return undefined
-}
-
-function getMessageType(payload: unknown): string {
-  return firstString(payload, ['type', 'event', 'payload.type', 'data.type']) ?? 'unknown'
-}
-
-function getMessageLevel(payload: unknown): string | undefined {
-  return firstString(payload, ['level', 'payload.level', 'data.level'])
-}
-
-function inferState(payload: unknown): unknown {
-  const type = getMessageType(payload).toLowerCase()
-  const looksStateLike =
-    type.includes('state') || type.includes('redux') || type.includes('subscription')
-
-  const candidate = firstValue(payload, [
-    'state',
-    'values',
-    'payload.state',
-    'payload.values',
-    'payload.snapshot',
-    'data.state',
-  ])
-
-  if (!looksStateLike && getByPath(payload, 'state') === undefined) {
-    return null
-  }
-
-  return candidate ?? null
-}
-
-function extractNetwork(payload: unknown): CuratedEvent['network'] | undefined {
-  const method = firstString(payload, [
-    'method',
-    'verb',
-    'config.method',
-    'request.method',
-    'request.config.method',
-    'request.options.method',
-    'payload.method',
-    'payload.verb',
-    'payload.config.method',
-    'payload.request.method',
-    'payload.request.config.method',
-    'data.method',
-    'data.verb',
-    'data.config.method',
-    'data.request.method',
-    'data.request.config.method',
-  ])
-
-  const url = firstString(payload, [
-    'url',
-    'uri',
-    'path',
-    'endpoint',
-    'config.url',
-    'request.url',
-    'request.path',
-    'request.config.url',
-    'payload.url',
-    'payload.uri',
-    'payload.config.url',
-    'payload.path',
-    'payload.request.url',
-    'payload.request.path',
-    'payload.request.config.url',
-    'data.url',
-    'data.uri',
-    'data.config.url',
-    'data.request.url',
-    'data.request.path',
-    'data.request.config.url',
-  ])
-
-  const status = firstNumber(payload, [
-    'status',
-    'response.statusCode',
-    'response.status',
-    'payload.status',
-    'payload.response.statusCode',
-    'payload.response.status',
-    'data.status',
-    'data.response.statusCode',
-    'data.response.status',
-  ])
-
-  const durationMs = firstNumber(payload, [
-    'duration',
-    'durationMs',
-    'responseTime',
-    'elapsedTime',
-    'payload.duration',
-    'payload.durationMs',
-    'payload.responseTime',
-    'payload.elapsedTime',
-    'data.duration',
-    'data.durationMs',
-    'data.responseTime',
-    'data.elapsedTime',
-  ])
-
-  const requestContainer = firstValue(payload, ['request', 'payload.request', 'data.request'])
-  const responseContainer = firstValue(payload, ['response', 'payload.response', 'data.response'])
-  const configContainer = firstValue(payload, ['config', 'payload.config', 'data.config'])
-
-  const requestBodyDirect = firstValue(payload, [
-    'config.data',
-    'request.data',
-    'request._bodyInit',
-    'request.query',
-    'request.variables',
-    'query',
-    'variables',
-    'request.body',
-    'request.bodyString',
-    'request.config.data',
-    'payload.config.data',
-    'payload.request.data',
-    'payload.request._bodyInit',
-    'payload.request.query',
-    'payload.request.variables',
-    'payload.query',
-    'payload.variables',
-    'payload.request.body',
-    'payload.request.bodyString',
-    'payload.request.config.data',
-    'data.config.data',
-    'data.request.data',
-    'data.request._bodyInit',
-    'data.request.query',
-    'data.request.variables',
-    'data.query',
-    'data.variables',
-    'data.request.body',
-    'data.request.bodyString',
-    'data.request.config.data',
-      'payload.requestBody',
-      'data.requestBody',
-      'requestBody',
-      'payload.body',
-      'payload.bodyString',
-    ])
-
-  const responseBodyDirect = firstValue(payload, [
-      'response.data',
-      'response.body',
-      'response.bodyString',
-      'payload.response.data',
-      'payload.response.body',
-      'payload.response.bodyString',
-      'data.response.data',
-      'data.response.body',
-      'data.response.bodyString',
-      'payload.responseBody',
-      'data.responseBody',
-      'responseBody',
-      'payload.response',
-      'data',
-      'payload.data',
-    ])
-
-  const requestHeadersDirect = firstValue(payload, [
-    'config.headers',
-    'request.headers',
-    'request.config.headers',
-    'payload.config.headers',
-    'payload.request.headers',
-    'payload.request.config.headers',
-    'payload.requestHeaders',
-    'data.config.headers',
-    'data.request.headers',
-    'data.request.config.headers',
-    'data.requestHeaders',
-    'requestHeaders',
-  ])
-
-  const responseHeadersDirect = firstValue(payload, [
-    'headers',
-    'response.headers',
-    'payload.headers',
-    'payload.response.headers',
-    'payload.responseHeaders',
-    'data.headers',
-    'data.response.headers',
-    'data.responseHeaders',
-    'responseHeaders',
-  ])
-
-  const error = firstString(payload, [
-    'error.message',
-    'payload.error.message',
-    'data.error.message',
-    'response.error',
-    'payload.response.error',
-    'data.response.error',
-    'error',
-    'payload.error',
-  ])
-
-  // Axios/ApiSauce responses often carry request metadata in `config`.
-  // If explicit request headers/body weren't found, infer them from config.
-  const deepRequestHeaders =
-    deepFindByKeys(requestContainer, ['headers']) ??
-    deepFindByKeys(configContainer, ['headers']) ??
-    deepFindByKeys(payload, ['requestheaders', 'request_headers'])
-  const deepResponseHeaders =
-    deepFindByKeys(responseContainer, ['headers']) ??
-    deepFindByKeys(payload, ['responseheaders', 'response_headers'])
-
-  const deepRequestBody =
-    deepFindByKeys(requestContainer, ['data', 'body', 'bodystring']) ??
-    deepFindByKeys(configContainer, ['data', 'body', 'bodystring']) ??
-    deepFindByKeys(payload, ['query', 'variables'])
-  const deepResponseBody =
-    deepFindByKeys(responseContainer, ['data', 'body', 'bodystring', 'result']) ??
-    deepFindByKeys(payload, ['responsebody', 'response_body'])
-
-  const finalRequestHeaders = requestHeadersDirect ?? deepRequestHeaders
-  const finalResponseHeaders = responseHeadersDirect ?? deepResponseHeaders
-  const finalRequestBody = maybeParseJsonString(requestBodyDirect ?? deepRequestBody)
-  const finalResponseBody = maybeParseJsonString(responseBodyDirect ?? deepResponseBody)
-
-  if (
-    method === undefined &&
-    url === undefined &&
-    status === undefined &&
-    durationMs === undefined &&
-    finalRequestHeaders === undefined &&
-    finalResponseHeaders === undefined &&
-    finalRequestBody === undefined &&
-    finalResponseBody === undefined &&
-    error === undefined
-  ) {
-    return undefined
-  }
-
-  return {
-    method,
-    url,
-    status,
-    durationMs,
-    requestHeaders: finalRequestHeaders,
-    responseHeaders: finalResponseHeaders,
-    requestBody: finalRequestBody,
-    responseBody: finalResponseBody,
-    error,
-  }
-}
-
-function extractDetails(payload: unknown): JsonObject | undefined {
-  const root = asObject(payload)
-  if (!root) return undefined
-
-  const details: JsonObject = {}
-  for (const [key, value] of Object.entries(root)) {
-    if (
-      key === 'payload' ||
-      key === 'data' ||
-      key === 'state' ||
-      key === 'values' ||
-      key === 'request' ||
-      key === 'response'
-    ) {
-      continue
-    }
-
-    const t = typeof value
-    if (value == null || t === 'string' || t === 'number' || t === 'boolean') {
-      details[key] = value
-    }
-  }
-
-  return Object.keys(details).length > 0 ? details : undefined
-}
-
 function shouldDrop(type: string): boolean {
   const t = type.toLowerCase()
   return (
     t.includes('ping') ||
     t.includes('pong') ||
     t.includes('heartbeat') ||
-    t.includes('connected') ||
-    t.includes('client.intro')
+    t.includes('connected')
   )
-}
-
-function curateEvent(payload: unknown): CuratedEvent | null {
-  const ts = new Date().toISOString()
-  const type = getMessageType(payload)
-  if (shouldDrop(type)) return null
-
-  const level = getMessageLevel(payload)
-  const msgType = type.toLowerCase()
-
-  const event: CuratedEvent = { ts, type }
-  if (level) event.level = level
-
-  const message = firstString(payload, ['message', 'payload.message', 'data.message'])
-  const stack = firstString(payload, [
-    'stack',
-    'payload.stack',
-    'data.stack',
-    'error.stack',
-    'payload.error.stack',
-  ])
-
-  if (message) event.message = message
-  if (stack) event.stack = stack
-
-  if (msgType.includes('action')) {
-    const actionContainer = firstValue(payload, ['action', 'payload.action', 'data.action'])
-    const actionName = firstString(payload, [
-      'action.name',
-      'payload.action.name',
-      'data.action.name',
-      'actionName',
-      'payload.actionName',
-      'data.actionName',
-      'name',
-    ])
-    const actionPath = firstString(payload, [
-      'action.path',
-      'payload.action.path',
-      'data.action.path',
-      'path',
-      'payload.path',
-      'data.path',
-    ])
-    const actionPayload = normalizeActionPayload(
-      firstValue(payload, [
-        'action.payload',
-        'action.payload.0',
-        'action.payload.0.payload',
-        'action.payload.0.args',
-        'payload.action.payload',
-        'payload.action.payload.0',
-        'payload.action.payload.0.payload',
-        'payload.action.payload.0.args',
-        'data.action.payload',
-        'data.action.payload.0',
-        'data.action.payload.0.payload',
-        'data.action.payload.0.args',
-        'action.args',
-        'action.args.0',
-        'action.arguments',
-        'action.arguments.0',
-        'action.params',
-        'action.params.0',
-        'payload.action.args',
-        'payload.action.args.0',
-        'payload.action.arguments',
-        'payload.action.arguments.0',
-        'payload.action.params',
-        'payload.action.params.0',
-        'data.action.args',
-        'data.action.args.0',
-        'data.action.arguments',
-        'data.action.arguments.0',
-        'data.action.params',
-        'data.action.params.0',
-        'payload.payload',
-        'payload.payload.0',
-        'data.payload',
-        'data.payload.0',
-      ]) ??
-        deepFindByKeys(actionContainer, ['payload', 'args', 'arguments', 'params']) ??
-        deepFindByKeys(payload, ['actionpayload', 'action_payload']),
-    )
-
-    event.action = {
-      type: firstString(payload, ['action.type', 'payload.action.type', 'data.action.type', 'name']),
-      name: actionName,
-      path: actionPath,
-      displayName: formatActionDisplayName(actionPath, actionName),
-      payload: actionPayload,
-    }
-
-    const changed = firstValue(payload, ['changed', 'payload.changed', 'data.changed'])
-    if (Array.isArray(changed)) {
-      event.changed = changed.filter((v): v is string => typeof v === 'string')
-    }
-  }
-
-  const network = extractNetwork(payload)
-  if (network) event.network = network
-
-  if (msgType.includes('benchmark')) {
-    event.benchmark = {
-      title: firstString(payload, ['title', 'payload.title', 'data.title']),
-      steps: firstValue(payload, ['steps', 'payload.steps', 'data.steps']),
-    }
-  }
-
-  event.details = extractDetails(payload)
-
-  const hasUsefulFields =
-    event.message !== undefined ||
-    event.stack !== undefined ||
-    event.network !== undefined ||
-    event.action !== undefined ||
-    event.benchmark !== undefined ||
-    (event.details !== undefined && Object.keys(event.details).length > 0)
-
-  return hasUsefulFields ? event : null
 }
 
 function broadcastDashboard(payload: unknown): void {
@@ -586,45 +63,16 @@ function broadcastDashboard(payload: unknown): void {
   }
 }
 
-async function appendEvent(payload: unknown): Promise<void> {
-  const curated = curateEvent(payload)
-  if (!curated) return
-
-  await appendFile(APP_LOG_PATH, `${JSON.stringify(curated)}\n`, 'utf8')
-  broadcastDashboard({ kind: 'event', event: curated })
-
-  const maybeState = inferState(payload)
-  if (maybeState !== null) {
-    latestState = maybeState
-    latestStateAt = curated.ts
-  }
-}
-
-async function loadRecentEvents(limit: number): Promise<CuratedEvent[]> {
-  if (!existsSync(APP_LOG_PATH)) return []
-
-  const content = await readFile(APP_LOG_PATH, 'utf8')
-  const lines = content.split('\n').filter((line) => line.trim().length > 0)
-  const selected = lines.slice(Math.max(0, lines.length - limit))
-
-  const parsed: CuratedEvent[] = []
-  for (const line of selected) {
-    try {
-      parsed.push(JSON.parse(line) as CuratedEvent)
-    } catch {
-      // Skip malformed lines.
-    }
-  }
-
-  return parsed
-}
-
 function wsBehavior() {
+  let sessionId = ''
+
   return {
     onOpen(_event: Event, ws: ServerWebSocket<AppWsData>) {
-      ws.data = { clientId: crypto.randomUUID() }
+      sessionId = crypto.randomUUID()
+      ws.data = { clientId: sessionId, sessionId }
       appClients.add(ws)
-      console.log(`[ws] client connected id=${ws.data.clientId} total=${appClients.size}`)
+      createSession(db, sessionId)
+      console.log(`[ws] client connected session=${sessionId} total=${appClients.size}`)
 
       if (ws.readyState === ws.OPEN) {
         ws.send('{"type":"connected"}')
@@ -640,22 +88,42 @@ function wsBehavior() {
         parsed = { message: raw, type: 'raw.text' }
       }
 
-      appendEvent(parsed).catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err)
-        console.error('Failed to append event:', msg)
-      })
+      const type = getMessageType(parsed)
 
-      const state = inferState(parsed)
-      if (state !== null) {
-        latestState = state
-        latestStateAt = new Date().toISOString()
-        writeFile(STATE_PATH, JSON.stringify(state, null, 2), 'utf8').catch(() => {})
+      // Handle client.intro: extract metadata for the session table
+      if (type === 'client.intro') {
+        const payload = asObject(getByPath(parsed, 'payload'))
+        updateSessionMetadata(db, sessionId, {
+          appName: firstString(parsed, ['payload.name', 'payload.appName', 'name']),
+          platform: firstString(parsed, ['payload.platform', 'platform']),
+          raw: payload,
+        })
+      }
+
+      // Drop protocol noise (but NOT client.intro)
+      if (shouldDrop(type)) return
+
+      const timestamp = new Date().toISOString()
+      insertRawEvent(db, { sessionId, timestamp, type, rawJson: JSON.stringify(parsed) })
+
+      // Curate for live dashboard broadcast
+      const curated = curateEvent(parsed, timestamp)
+      if (curated) {
+        broadcastDashboard({ kind: 'event', event: curated })
+      }
+
+      // State inference
+      const maybeState = inferState(parsed)
+      if (maybeState !== null) {
+        latestState = maybeState
+        latestStateAt = timestamp
+        writeFile(STATE_PATH, JSON.stringify(maybeState, null, 2), 'utf8').catch(() => {})
       }
     },
     onClose(_event: CloseEvent, ws: ServerWebSocket<AppWsData>) {
       appClients.delete(ws)
-      const clientId = ws.data?.clientId ?? 'unknown'
-      console.log(`[ws] client disconnected id=${clientId} total=${appClients.size}`)
+      closeSession(db, sessionId)
+      console.log(`[ws] client disconnected session=${sessionId} total=${appClients.size}`)
     },
     onError(event: Event) {
       console.error('WebSocket error:', event)
@@ -683,6 +151,8 @@ async function setupStorage(): Promise<void> {
 }
 
 await setupStorage()
+
+const db = initDb(DB_PATH)
 
 const app = new Hono()
 const { upgradeWebSocket, websocket } = createBunWebSocket<AppWsData>()
@@ -720,17 +190,29 @@ app.get('/dump-state', async (c) => {
   })
 })
 
-app.get('/api/events', async (c) => {
+app.get('/api/events', (c) => {
   const rawLimit = Number(c.req.query('limit') ?? 200)
   const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 2000) : 200
-  const events = await loadRecentEvents(limit)
+  const rows = getRecentEvents(db, limit)
+
+  const events: CuratedEvent[] = []
+  for (const row of rows) {
+    try {
+      const curated = curateEvent(JSON.parse(row.raw_json), row.timestamp)
+      if (curated) events.push(curated)
+    } catch { /* skip malformed rows */ }
+  }
+
+  // getRecentEvents returns newest first; reverse to chronological order
+  events.reverse()
+
   return c.json({ ok: true, count: events.length, events })
 })
 
-app.post('/api/events/reset', async (c) => {
-  await writeFile(APP_LOG_PATH, '', 'utf8')
+app.post('/api/events/reset', (c) => {
+  deleteAllEvents(db)
   broadcastDashboard({ kind: 'events-reset', at: new Date().toISOString() })
-  return c.json({ ok: true, file: APP_LOG_PATH })
+  return c.json({ ok: true })
 })
 
 app.get('/api/state', async (c) => {
@@ -739,7 +221,7 @@ app.get('/api/state', async (c) => {
   }
 
   try {
-    const content = await readFile(STATE_PATH, 'utf8')
+    const content = await Bun.file(STATE_PATH).text()
     return c.json({ ok: true, state: JSON.parse(content) })
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)

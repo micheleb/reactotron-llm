@@ -1,6 +1,6 @@
 # Event Format Reference
 
-Each line in `.reactotron-llm/app-log.jsonl` is a JSON object (a "curated event"). The same format is returned by `GET /api/events`.
+Events are stored as raw WebSocket payloads in `.reactotron-llm/reactotron.db` (SQLite). The `GET /api/events` endpoint curates them on-the-fly and returns them in the format below.
 
 ## Common Fields
 
@@ -89,4 +89,4 @@ Key fields: `action.name`, `action.displayName`, `action.payload`, `changed` (li
 
 ## Dropped Events
 
-The proxy silently drops noise events: `ping`, `pong`, `heartbeat`, `connected`, `client.intro`. These never appear in the JSONL or API.
+The proxy silently drops noise events: `ping`, `pong`, `heartbeat`, `connected`. These are never stored or returned by the API. `client.intro` events are stored and used to populate session metadata.

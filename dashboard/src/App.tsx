@@ -29,37 +29,7 @@ import {
   VStack,
 } from '@chakra-ui/react'
 
-type CuratedEvent = {
-  ts: string
-  type: string
-  level?: string
-  message?: string
-  stack?: string
-  action?: {
-    type?: string
-    name?: string
-    path?: string
-    displayName?: string
-    payload?: unknown
-  }
-  changed?: string[]
-  network?: {
-    method?: string
-    url?: string
-    status?: number
-    durationMs?: number
-    requestHeaders?: unknown
-    responseHeaders?: unknown
-    requestBody?: unknown
-    responseBody?: unknown
-    error?: string
-  }
-  benchmark?: {
-    title?: string
-    steps?: unknown
-  }
-  details?: Record<string, unknown>
-}
+import type { CuratedEvent } from '@shared/types'
 
 type EventsResponse = {
   ok: boolean

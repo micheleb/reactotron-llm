@@ -2,7 +2,7 @@
 name: reactotron
 description: >
   Inspect and debug a React Native app using reactotron-llm, a Reactotron-compatible proxy
-  that writes curated events to JSONL files. Use this skill when you need to investigate
+  that stores raw events in SQLite. Use this skill when you need to investigate
   what a React Native app is doing at runtime: view logs, API requests/responses, state
   changes, MobX/Redux actions, benchmarks, or capture the current app state. Triggers on
   "what is the app doing", "check reactotron", "inspect the app", "show me the logs",
@@ -51,7 +51,7 @@ Start the proxy as a background process so it doesn't block your session. After 
 
 ## Reading Events
 
-Use the REST API to read curated events. Prefer the API over reading the JSONL file directly — it's faster and handles parsing.
+Use the REST API to read curated events. The API curates raw events from SQLite on-the-fly.
 
 ### Recent events
 
@@ -95,7 +95,7 @@ Returns `{ "ok": true, "port": 9090, "clients": N, ... }`. The `clients` field s
 
 ## Event Format
 
-See [references/event-format.md](references/event-format.md) for the full JSONL schema and event type details.
+See [references/event-format.md](references/event-format.md) for the full event schema and type details.
 
 ## Investigation Workflow
 

@@ -30,5 +30,5 @@ bun run dashboard:dev
 
 ## Output files
 
-- `.reactotron-llm/app-log.jsonl` (curated events only)
+- `.reactotron-llm/reactotron.db` (SQLite database — raw events + sessions)
 - `.reactotron-llm/state.json` (after `/dump-state`)
