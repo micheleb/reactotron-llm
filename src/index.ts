@@ -57,7 +57,7 @@ function shouldDrop(type: string): boolean {
 function broadcastDashboard(payload: unknown): void {
   const serialized = JSON.stringify(payload)
   for (const client of dashboardClients) {
-    if (client.readyState === client.OPEN) {
+    if (client.readyState === 1) {
       client.send(serialized)
     }
   }
@@ -74,7 +74,7 @@ function wsBehavior() {
       createSession(db, sessionId)
       console.log(`[ws] client connected session=${sessionId} total=${appClients.size}`)
 
-      if (ws.readyState === ws.OPEN) {
+      if (ws.readyState === 1) {
         ws.send('{"type":"connected"}')
       }
     },
