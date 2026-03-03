@@ -11,3 +11,4 @@ dashboard/.env.*
 !dashboard/.env.example
 npm-debug.log*
 .DS_Store
+settings.local.json

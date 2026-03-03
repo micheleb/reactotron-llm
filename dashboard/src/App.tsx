@@ -38,6 +38,9 @@ type CuratedEvent = {
   action?: {
     type?: string
     name?: string
+    path?: string
+    displayName?: string
+    payload?: unknown
   }
   changed?: string[]
   network?: {
@@ -75,8 +78,44 @@ type HealthResponse = {
 const DEFAULT_API_BASE = 'http://localhost:9090'
 const DEFAULT_WS_URL = 'ws://localhost:9092'
 
+function normalizePlaceholders(value: unknown): unknown {
+  if (typeof value === 'string') {
+    switch (value.trim()) {
+      case '~~~ false ~~~':
+        return false
+      case '~~~ true ~~~':
+        return true
+      case '~~~ null ~~~':
+        return null
+      case '~~~ zero ~~~':
+        return 0
+      case '~~~ empty string ~~~':
+        return ''
+      case '~~~ undefined ~~~':
+        return null
+      default:
+        return value
+    }
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizePlaceholders(item))
+  }
+
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    const normalized: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(obj)) {
+      normalized[key] = normalizePlaceholders(item)
+    }
+    return normalized
+  }
+
+  return value
+}
+
 function formatJson(value: unknown): string {
-  return JSON.stringify(value, null, 2)
+  return JSON.stringify(normalizePlaceholders(value), null, 2)
 }
 
 function byNewest(a: CuratedEvent, b: CuratedEvent): number {
@@ -134,6 +173,11 @@ export default function App() {
     await loadState()
   }
 
+  async function resetEvents() {
+    await fetch(`${apiBase}/api/events/reset`, { method: 'POST' })
+    setEvents([])
+  }
+
   useEffect(() => {
     loadHealth().catch(() => undefined)
     loadEvents().catch(() => undefined)
@@ -152,6 +196,9 @@ export default function App() {
         const parsed = JSON.parse(message.data)
         if (parsed.kind === 'event' && parsed.event) {
           setEvents((current) => [parsed.event, ...current].sort(byNewest).slice(0, 500))
+        }
+        if (parsed.kind === 'events-reset') {
+          setEvents([])
         }
         if (parsed.kind === 'state-updated') {
           loadState().catch(() => undefined)
@@ -199,6 +246,9 @@ export default function App() {
             </Badge>
             <Button size="sm" onClick={() => loadEvents().catch(() => undefined)}>
               Refresh Events
+            </Button>
+            <Button size="sm" variant="outline" colorScheme="red" onClick={() => resetEvents().catch(() => undefined)}>
+              Reset Logs
             </Button>
             <Button size="sm" colorScheme="blue" onClick={() => requestDumpState().catch(() => undefined)}>
               Dump State
@@ -301,6 +351,18 @@ export default function App() {
               <Heading size="sm" mb={3}>Curated Events ({filteredEvents.length}/{events.length})</Heading>
               <VStack align="stretch" spacing={3}>
                 {filteredEvents.map((event, index) => (
+                  (() => {
+                    const actionDisplay = event.action?.displayName
+                    const actionLabel = event.action?.name ?? event.action?.type
+                    const showActionAsPrimary =
+                      event.type === 'state.action.complete' &&
+                      actionLabel !== undefined &&
+                      actionLabel !== null
+                    const primaryLabel = showActionAsPrimary ? (actionDisplay ?? `action.${actionLabel}`) : event.type
+                    const primaryType = showActionAsPrimary ? 'ACTION' : event.type
+                    const hasActionPayload =
+                      !!event.action && Object.prototype.hasOwnProperty.call(event.action, 'payload')
+                    return (
                   <Box
                     key={`${event.ts}-${index}`}
                     p={3}
@@ -313,7 +375,13 @@ export default function App() {
                     minW={0}
                   >
                     <HStack justify="space-between" mb={2} align="center" minW={0}>
-                      <Code fontSize="sm" px={2} py={1}>{event.type}</Code>
+                      <HStack spacing={2} minW={0}>
+                        <Code fontSize="sm" px={2} py={1}>{primaryType}</Code>
+                        <Text fontSize="sm" color="gray.200" fontFamily="mono">{primaryLabel}</Text>
+                        {showActionAsPrimary ? (
+                          <Text fontSize="xs" color="gray.400">({event.type})</Text>
+                        ) : null}
+                      </HStack>
                       <Box
                         as="span"
                         fontSize="sm"
@@ -331,6 +399,30 @@ export default function App() {
                       </Box>
                     </HStack>
                     {event.message ? <Text mb={2}>{event.message}</Text> : null}
+                    {event.action ? (
+                      <Box mb={2}>
+                        <Text fontSize="sm" color="orange.300">
+                          Action {event.action.name ?? event.action.type ?? 'unknown'}
+                        </Text>
+                        {hasActionPayload ? (
+                          <Accordion allowToggle mt={2}>
+                            <AccordionItem borderColor="gray.700" borderRadius="md">
+                              <AccordionButton px={3} py={2}>
+                                <Box flex="1" textAlign="left" fontSize="sm" color="gray.300">
+                                  Action Payload
+                                </Box>
+                                <AccordionIcon />
+                              </AccordionButton>
+                              <AccordionPanel pt={2}>
+                                <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">
+                                  {formatJson(event.action.payload)}
+                                </Code>
+                              </AccordionPanel>
+                            </AccordionItem>
+                          </Accordion>
+                        ) : null}
+                      </Box>
+                    ) : null}
                     {event.network ? (
                       <Accordion allowToggle mb={2}>
                         <AccordionItem borderColor="gray.700" borderRadius="md">
@@ -391,6 +483,8 @@ export default function App() {
                     ) : null}
                     {event.stack ? <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">{event.stack}</Code> : null}
                   </Box>
+                    )
+                  })()
                 ))}
               </VStack>
             </Box>

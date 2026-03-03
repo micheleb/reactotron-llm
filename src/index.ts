@@ -30,6 +30,9 @@ type CuratedEvent = {
   action?: {
     type?: string
     name?: string
+    path?: string
+    displayName?: string
+    payload?: unknown
   }
   changed?: string[]
   network?: {
@@ -108,6 +111,25 @@ function maybeParseJsonString(value: unknown): unknown {
     }
   }
   return value
+}
+
+function normalizeActionPayload(value: unknown): unknown {
+  const parsed = maybeParseJsonString(value)
+  if (Array.isArray(parsed)) {
+    if (parsed.length === 0) return undefined
+    if (parsed.length === 1) return normalizeActionPayload(parsed[0])
+    return normalizeActionPayload(parsed[0])
+  }
+  return parsed
+}
+
+function formatActionDisplayName(pathValue: string | undefined, nameValue: string | undefined): string | undefined {
+  if (!nameValue) return undefined
+  if (!pathValue) return `${nameValue}()`
+
+  const trimmedPath = pathValue.startsWith('/') ? pathValue.slice(1) : pathValue
+  if (!trimmedPath) return `${nameValue}()`
+  return `${trimmedPath}.${nameValue}()`
 }
 
 function deepFindByKeys(
@@ -459,9 +481,71 @@ function curateEvent(payload: unknown): CuratedEvent | null {
   if (stack) event.stack = stack
 
   if (msgType.includes('action')) {
+    const actionContainer = firstValue(payload, ['action', 'payload.action', 'data.action'])
+    const actionName = firstString(payload, [
+      'action.name',
+      'payload.action.name',
+      'data.action.name',
+      'actionName',
+      'payload.actionName',
+      'data.actionName',
+      'name',
+    ])
+    const actionPath = firstString(payload, [
+      'action.path',
+      'payload.action.path',
+      'data.action.path',
+      'path',
+      'payload.path',
+      'data.path',
+    ])
+    const actionPayload = normalizeActionPayload(
+      firstValue(payload, [
+        'action.payload',
+        'action.payload.0',
+        'action.payload.0.payload',
+        'action.payload.0.args',
+        'payload.action.payload',
+        'payload.action.payload.0',
+        'payload.action.payload.0.payload',
+        'payload.action.payload.0.args',
+        'data.action.payload',
+        'data.action.payload.0',
+        'data.action.payload.0.payload',
+        'data.action.payload.0.args',
+        'action.args',
+        'action.args.0',
+        'action.arguments',
+        'action.arguments.0',
+        'action.params',
+        'action.params.0',
+        'payload.action.args',
+        'payload.action.args.0',
+        'payload.action.arguments',
+        'payload.action.arguments.0',
+        'payload.action.params',
+        'payload.action.params.0',
+        'data.action.args',
+        'data.action.args.0',
+        'data.action.arguments',
+        'data.action.arguments.0',
+        'data.action.params',
+        'data.action.params.0',
+        'payload.payload',
+        'payload.payload.0',
+        'data.payload',
+        'data.payload.0',
+      ]) ??
+        deepFindByKeys(actionContainer, ['payload', 'args', 'arguments', 'params']) ??
+        deepFindByKeys(payload, ['actionpayload', 'action_payload']),
+    )
+
     event.action = {
       type: firstString(payload, ['action.type', 'payload.action.type', 'data.action.type', 'name']),
-      name: firstString(payload, ['action.name', 'payload.action.name', 'data.action.name']),
+      name: actionName,
+      path: actionPath,
+      displayName: formatActionDisplayName(actionPath, actionName),
+      payload: actionPayload,
     }
 
     const changed = firstValue(payload, ['changed', 'payload.changed', 'data.changed'])
@@ -570,7 +654,8 @@ function wsBehavior() {
     },
     onClose(_event: CloseEvent, ws: ServerWebSocket<AppWsData>) {
       appClients.delete(ws)
-      console.log(`[ws] client disconnected id=${ws.data.clientId} total=${appClients.size}`)
+      const clientId = ws.data?.clientId ?? 'unknown'
+      console.log(`[ws] client disconnected id=${clientId} total=${appClients.size}`)
     },
     onError(event: Event) {
       console.error('WebSocket error:', event)
@@ -640,6 +725,12 @@ app.get('/api/events', async (c) => {
   const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 2000) : 200
   const events = await loadRecentEvents(limit)
   return c.json({ ok: true, count: events.length, events })
+})
+
+app.post('/api/events/reset', async (c) => {
+  await writeFile(APP_LOG_PATH, '', 'utf8')
+  broadcastDashboard({ kind: 'events-reset', at: new Date().toISOString() })
+  return c.json({ ok: true, file: APP_LOG_PATH })
 })
 
 app.get('/api/state', async (c) => {
