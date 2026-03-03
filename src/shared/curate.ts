@@ -413,6 +413,28 @@ export function curateEvent(payload: unknown, timestamp: string): CuratedEvent |
   if (message) event.message = message
   if (stack) event.stack = stack
 
+  // client.intro: extract client metadata into message + details
+  if (msgType === 'client.intro') {
+    const name = firstString(payload, ['payload.name', 'payload.appName', 'name'])
+    const platform = firstString(payload, ['payload.platform', 'platform'])
+    const parts = [name, platform].filter(Boolean)
+    if (parts.length > 0) event.message = parts.join(' (') + (platform ? ')' : '')
+
+    const intro = asObject(getByPath(payload, 'payload'))
+    if (intro) {
+      const details: JsonObject = {}
+      for (const [key, value] of Object.entries(intro)) {
+        const t = typeof value
+        if (value == null || t === 'string' || t === 'number' || t === 'boolean') {
+          details[key] = value
+        }
+      }
+      if (Object.keys(details).length > 0) event.details = details
+    }
+
+    return event
+  }
+
   if (msgType.includes('action')) {
     const actionContainer = firstValue(payload, ['action', 'payload.action', 'data.action'])
     const actionName = firstString(payload, [
