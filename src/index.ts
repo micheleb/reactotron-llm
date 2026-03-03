@@ -193,7 +193,9 @@ app.get('/dump-state', async (c) => {
 app.get('/api/events', (c) => {
   const rawLimit = Number(c.req.query('limit') ?? 200)
   const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 2000) : 200
-  const rows = getRecentEvents(db, limit)
+  const rawOffset = Number(c.req.query('offset') ?? 0)
+  const offset = Number.isFinite(rawOffset) ? Math.min(Math.max(rawOffset, 0), 100000) : 0
+  const rows = getRecentEvents(db, limit, offset)
 
   const events: CuratedEvent[] = []
   for (const row of rows) {
@@ -206,7 +208,7 @@ app.get('/api/events', (c) => {
   // getRecentEvents returns newest first; reverse to chronological order
   events.reverse()
 
-  return c.json({ ok: true, count: events.length, events })
+  return c.json({ ok: true, count: events.length, events, hasMore: rows.length === limit })
 })
 
 app.post('/api/events/reset', (c) => {

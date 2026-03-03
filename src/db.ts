@@ -52,7 +52,7 @@ function getStatements(db: Database) {
         'INSERT INTO raw_events (session_id, timestamp, type, raw_json) VALUES (?, ?, ?, ?)',
       ),
       recentEvents: db.prepare(
-        'SELECT id, timestamp, type, raw_json FROM raw_events ORDER BY id DESC LIMIT ?',
+        'SELECT id, timestamp, type, raw_json FROM raw_events ORDER BY id DESC LIMIT ? OFFSET ?',
       ),
     }
     stmtCache.set(db, cached)
@@ -96,9 +96,10 @@ export function insertRawEvent(
 export function getRecentEvents(
   db: Database,
   limit: number,
+  offset = 0,
 ): Array<{ id: number; timestamp: string; type: string; raw_json: string }> {
   const { recentEvents } = getStatements(db)
-  return recentEvents.all(limit) as Array<{ id: number; timestamp: string; type: string; raw_json: string }>
+  return recentEvents.all(limit, offset) as Array<{ id: number; timestamp: string; type: string; raw_json: string }>
 }
 
 export function deleteAllEvents(db: Database): void {
