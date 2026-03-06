@@ -45,6 +45,9 @@ const stmtCache = new WeakMap<Database, {
   getSession: ReturnType<Database['prepare']>
   getMostRecentSession: ReturnType<Database['prepare']>
   sessionEventCount: ReturnType<Database['prepare']>
+  listSessions: ReturnType<Database['prepare']>
+  sessionEvents: ReturnType<Database['prepare']>
+  sessionExists: ReturnType<Database['prepare']>
 }>()
 
 function getStatements(db: Database) {
@@ -65,6 +68,20 @@ function getStatements(db: Database) {
       ),
       sessionEventCount: db.prepare(
         'SELECT COUNT(*) as count FROM raw_events WHERE session_id = ?',
+      ),
+      listSessions: db.prepare(
+        `SELECT s.id, s.connected_at, s.disconnected_at, s.app_name, s.platform,
+                COUNT(e.id) as event_count
+         FROM sessions s
+         LEFT JOIN raw_events e ON e.session_id = s.id
+         GROUP BY s.id
+         ORDER BY s.connected_at DESC`,
+      ),
+      sessionEvents: db.prepare(
+        'SELECT id, timestamp, type, raw_json FROM raw_events WHERE session_id = ? ORDER BY id ASC',
+      ),
+      sessionExists: db.prepare(
+        'SELECT 1 FROM sessions WHERE id = ?',
       ),
     }
     stmtCache.set(db, cached)
@@ -112,6 +129,38 @@ export function getRecentEvents(
 ): Array<{ id: number; timestamp: string; type: string; raw_json: string }> {
   const { recentEvents } = getStatements(db)
   return recentEvents.all(limit, offset) as Array<{ id: number; timestamp: string; type: string; raw_json: string }>
+}
+
+export function listSessions(db: Database): Array<{
+  id: string
+  connected_at: string
+  disconnected_at: string | null
+  app_name: string | null
+  platform: string | null
+  event_count: number
+}> {
+  const { listSessions: stmt } = getStatements(db)
+  return stmt.all() as Array<{
+    id: string
+    connected_at: string
+    disconnected_at: string | null
+    app_name: string | null
+    platform: string | null
+    event_count: number
+  }>
+}
+
+export function getSessionEvents(
+  db: Database,
+  sessionId: string,
+): Array<{ id: number; timestamp: string; type: string; raw_json: string }> {
+  const { sessionEvents } = getStatements(db)
+  return sessionEvents.all(sessionId) as Array<{ id: number; timestamp: string; type: string; raw_json: string }>
+}
+
+export function sessionExists(db: Database, sessionId: string): boolean {
+  const { sessionExists: stmt } = getStatements(db)
+  return stmt.get(sessionId) !== null
 }
 
 export function deleteAllEvents(db: Database): void {

@@ -23,8 +23,11 @@ import {
   getRecentEvents,
   getSession,
   getSessionEventCount,
+  getSessionEvents,
   initDb,
   insertRawEvent,
+  listSessions,
+  sessionExists,
   updateSessionMetadata,
 } from './db'
 
@@ -213,6 +216,30 @@ app.get('/api/events', (c) => {
   events.reverse()
 
   return c.json({ ok: true, count: events.length, events, hasMore: rows.length === limit })
+})
+
+app.get('/api/sessions', (c) => {
+  const sessions = listSessions(db)
+  return c.json({ ok: true, sessions })
+})
+
+app.get('/api/sessions/:id/events', (c) => {
+  const sessionId = c.req.param('id')
+
+  if (!sessionExists(db, sessionId)) {
+    return c.json({ ok: false, error: 'Session not found' }, 404)
+  }
+
+  const rows = getSessionEvents(db, sessionId)
+  const events: CuratedEvent[] = []
+  for (const row of rows) {
+    try {
+      const curated = curateEvent(JSON.parse(row.raw_json), row.timestamp)
+      if (curated) events.push(curated)
+    } catch { /* skip malformed rows */ }
+  }
+
+  return c.json({ ok: true, total: events.length, events })
 })
 
 app.post('/api/events/reset', (c) => {
