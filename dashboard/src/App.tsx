@@ -13,6 +13,9 @@ import {
   Stat,
   StatLabel,
   StatNumber,
+  Tab,
+  TabList,
+  Tabs,
   Text,
   VStack,
 } from '@chakra-ui/react'
@@ -20,6 +23,7 @@ import {
 import type { CuratedEvent } from '@shared/types'
 import EventCard from './components/EventCard'
 import FilterBar from './components/FilterBar'
+import SessionTree from './components/SessionTree'
 
 type EventsResponse = {
   ok: boolean
@@ -35,6 +39,11 @@ type HealthResponse = {
   dashboardWsPort: number
   latestStateAt: string | null
 }
+
+type ViewState =
+  | { tab: 'live' }
+  | { tab: 'history'; view: 'list' }
+  | { tab: 'history'; view: 'session'; sessionId: string }
 
 const DEFAULT_API_BASE = 'http://localhost:9090'
 const DEFAULT_WS_URL = 'ws://localhost:9092'
@@ -97,6 +106,9 @@ export default function App() {
   const [levelFilter, setLevelFilter] = useState('')
   const [urlFilter, setUrlFilter] = useState('')
   const [errorsOnly, setErrorsOnly] = useState(false)
+  const [viewState, setViewState] = useState<ViewState>({ tab: 'live' })
+
+  const tabIndex = viewState.tab === 'live' ? 0 : 1
 
   async function loadHealth() {
     const res = await fetch(`${apiBase}/health`)
@@ -205,6 +217,8 @@ export default function App() {
       .sort(byNewest)
   }, [errorsOnly, events, levelFilter, typeFilter, urlFilter])
 
+  const isSessionDetail = viewState.tab === 'history' && viewState.view === 'session'
+
   return (
     <Box minH="100vh" maxW="100vw" overflowX="auto" bgGradient="linear(to-br, gray.950, black, gray.900)" p={6}>
       <VStack align="stretch" spacing={4}>
@@ -217,30 +231,34 @@ export default function App() {
             <Badge colorScheme={wsStatus === 'open' ? 'green' : wsStatus === 'connecting' ? 'yellow' : 'red'}>
               WS {wsStatus}
             </Badge>
-            <Button size="sm" onClick={() => loadEvents().catch(() => undefined)}>
-              Refresh Events
-            </Button>
-            <Button size="sm" variant="outline" colorScheme="red" onClick={() => resetEvents().catch(() => undefined)}>
-              Reset Logs
-            </Button>
-            <Button size="sm" colorScheme="blue" onClick={() => requestDumpState().catch(() => undefined)}>
-              Dump State
-            </Button>
-            <Button
-              size="sm"
-              colorScheme="teal"
-              isDisabled={events.length === 0}
-              onClick={() => {
-                const params = new URLSearchParams()
-                if (typeFilter) params.set('type', typeFilter)
-                if (levelFilter) params.set('level', levelFilter)
-                else if (errorsOnly) params.set('level', 'error')
-                const qs = params.toString()
-                window.open(`${apiBase}/api/export${qs ? `?${qs}` : ''}`)
-              }}
-            >
-              Export
-            </Button>
+            {viewState.tab === 'live' ? (
+              <>
+                <Button size="sm" onClick={() => loadEvents().catch(() => undefined)}>
+                  Refresh Events
+                </Button>
+                <Button size="sm" variant="outline" colorScheme="red" onClick={() => resetEvents().catch(() => undefined)}>
+                  Reset Logs
+                </Button>
+                <Button size="sm" colorScheme="blue" onClick={() => requestDumpState().catch(() => undefined)}>
+                  Dump State
+                </Button>
+                <Button
+                  size="sm"
+                  colorScheme="teal"
+                  isDisabled={events.length === 0}
+                  onClick={() => {
+                    const params = new URLSearchParams()
+                    if (typeFilter) params.set('type', typeFilter)
+                    if (levelFilter) params.set('level', levelFilter)
+                    else if (errorsOnly) params.set('level', 'error')
+                    const qs = params.toString()
+                    window.open(`${apiBase}/api/export${qs ? `?${qs}` : ''}`)
+                  }}
+                >
+                  Export
+                </Button>
+              </>
+            ) : null}
           </HStack>
         </Flex>
 
@@ -260,85 +278,127 @@ export default function App() {
               </HStack>
             </Box>
           </GridItem>
-          <GridItem minW={0}>
-            <Grid templateColumns="repeat(2, 1fr)" gap={3}>
-              <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
-                <Stat>
-                  <StatLabel>App Clients</StatLabel>
-                  <StatNumber>{health?.clients ?? 0}</StatNumber>
-                </Stat>
-              </Box>
-              <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
-                <Stat>
-                  <StatLabel>Error Events</StatLabel>
-                  <StatNumber>{errorCount}</StatNumber>
-                </Stat>
-              </Box>
-              <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
-                <Stat>
-                  <StatLabel>Network Events</StatLabel>
-                  <StatNumber>{networkCount}</StatNumber>
-                </Stat>
-              </Box>
-              <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
-                <Stat>
-                  <StatLabel>Proxy Port</StatLabel>
-                  <StatNumber>{health?.port ?? 9090}</StatNumber>
-                </Stat>
-              </Box>
+          {viewState.tab === 'live' ? (
+            <GridItem minW={0}>
+              <Grid templateColumns="repeat(2, 1fr)" gap={3}>
+                <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
+                  <Stat>
+                    <StatLabel>App Clients</StatLabel>
+                    <StatNumber>{health?.clients ?? 0}</StatNumber>
+                  </Stat>
+                </Box>
+                <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
+                  <Stat>
+                    <StatLabel>Error Events</StatLabel>
+                    <StatNumber>{errorCount}</StatNumber>
+                  </Stat>
+                </Box>
+                <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
+                  <Stat>
+                    <StatLabel>Network Events</StatLabel>
+                    <StatNumber>{networkCount}</StatNumber>
+                  </Stat>
+                </Box>
+                <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
+                  <Stat>
+                    <StatLabel>Proxy Port</StatLabel>
+                    <StatNumber>{health?.port ?? 9090}</StatNumber>
+                  </Stat>
+                </Box>
+              </Grid>
+            </GridItem>
+          ) : null}
+        </Grid>
+
+        {!isSessionDetail ? (
+          <Tabs
+            index={tabIndex}
+            onChange={(index) => {
+              if (index === 0) setViewState({ tab: 'live' })
+              else setViewState({ tab: 'history', view: 'list' })
+            }}
+            variant="enclosed"
+            colorScheme="cyan"
+          >
+            <TabList>
+              <Tab>Live</Tab>
+              <Tab>History</Tab>
+            </TabList>
+          </Tabs>
+        ) : null}
+
+        {viewState.tab === 'live' ? (
+          <>
+            <FilterBar
+              typeFilter={typeFilter}
+              levelFilter={levelFilter}
+              urlFilter={urlFilter}
+              errorsOnly={errorsOnly}
+              eventTypes={eventTypes}
+              onTypeFilterChange={setTypeFilter}
+              onLevelFilterChange={setLevelFilter}
+              onUrlFilterChange={setUrlFilter}
+              onErrorsOnlyChange={setErrorsOnly}
+              onReset={() => {
+                setTypeFilter('')
+                setLevelFilter('')
+                setUrlFilter('')
+                setErrorsOnly(false)
+              }}
+            />
+
+            <Grid templateColumns={{ base: '1fr', lg: '3fr 2fr' }} gap={4} minW={0}>
+              <GridItem minW={0}>
+                <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900" maxH="65vh" overflowY="auto" overflowX="auto" minW={0}>
+                  <Heading size="sm" mb={3}>Curated Events ({filteredEvents.length}/{events.length})</Heading>
+                  <VStack align="stretch" spacing={3}>
+                    {filteredEvents.map((event, index) => (
+                      <EventCard key={`${event.ts}-${index}`} event={event} />
+                    ))}
+                  </VStack>
+                  {hasMore ? (
+                    <Button
+                      mt={4}
+                      w="100%"
+                      size="sm"
+                      variant="outline"
+                      isLoading={loadingMore}
+                      onClick={() => loadMore().catch(() => undefined)}
+                    >
+                      Load more
+                    </Button>
+                  ) : null}
+                </Box>
+              </GridItem>
+
+              <GridItem minW={0}>
+                <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900" maxH="65vh" overflowY="auto" overflowX="auto" minW={0}>
+                  <Heading size="sm" mb={3}>State Snapshot</Heading>
+                  <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={3} maxW="100%" overflowX="auto">{stateText}</Code>
+                </Box>
+              </GridItem>
             </Grid>
-          </GridItem>
-        </Grid>
-
-        <FilterBar
-          typeFilter={typeFilter}
-          levelFilter={levelFilter}
-          urlFilter={urlFilter}
-          errorsOnly={errorsOnly}
-          eventTypes={eventTypes}
-          onTypeFilterChange={setTypeFilter}
-          onLevelFilterChange={setLevelFilter}
-          onUrlFilterChange={setUrlFilter}
-          onErrorsOnlyChange={setErrorsOnly}
-          onReset={() => {
-            setTypeFilter('')
-            setLevelFilter('')
-            setUrlFilter('')
-            setErrorsOnly(false)
-          }}
-        />
-
-        <Grid templateColumns={{ base: '1fr', lg: '3fr 2fr' }} gap={4} minW={0}>
-          <GridItem minW={0}>
-            <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900" maxH="65vh" overflowY="auto" overflowX="auto" minW={0}>
-              <Heading size="sm" mb={3}>Curated Events ({filteredEvents.length}/{events.length})</Heading>
-              <VStack align="stretch" spacing={3}>
-                {filteredEvents.map((event, index) => (
-                  <EventCard key={`${event.ts}-${index}`} event={event} />
-                ))}
-              </VStack>
-              {hasMore ? (
-                <Button
-                  mt={4}
-                  w="100%"
-                  size="sm"
-                  variant="outline"
-                  isLoading={loadingMore}
-                  onClick={() => loadMore().catch(() => undefined)}
-                >
-                  Load more
-                </Button>
-              ) : null}
-            </Box>
-          </GridItem>
-
-          <GridItem minW={0}>
-            <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900" maxH="65vh" overflowY="auto" overflowX="auto" minW={0}>
-              <Heading size="sm" mb={3}>State Snapshot</Heading>
-              <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={3} maxW="100%" overflowX="auto">{stateText}</Code>
-            </Box>
-          </GridItem>
-        </Grid>
+          </>
+        ) : viewState.view === 'list' ? (
+          <SessionTree
+            apiBase={apiBase}
+            onSelectSession={(sessionId) =>
+              setViewState({ tab: 'history', view: 'session', sessionId })
+            }
+          />
+        ) : (
+          <Box>
+            <Button
+              size="sm"
+              variant="outline"
+              mb={4}
+              onClick={() => setViewState({ tab: 'history', view: 'list' })}
+            >
+              Back to sessions
+            </Button>
+            <Text color="gray.400">Session detail view loading... (session: {viewState.sessionId})</Text>
+          </Box>
+        )}
       </VStack>
     </Box>
   )
