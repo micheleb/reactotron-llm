@@ -247,6 +247,21 @@ export default function App() {
             <Button size="sm" colorScheme="blue" onClick={() => requestDumpState().catch(() => undefined)}>
               Dump State
             </Button>
+            <Button
+              size="sm"
+              colorScheme="teal"
+              isDisabled={events.length === 0}
+              onClick={() => {
+                const params = new URLSearchParams()
+                if (typeFilter) params.set('type', typeFilter)
+                if (levelFilter) params.set('level', levelFilter)
+                else if (errorsOnly) params.set('level', 'error')
+                const qs = params.toString()
+                window.open(`${apiBase}/api/export${qs ? `?${qs}` : ''}`)
+              }}
+            >
+              Export
+            </Button>
           </HStack>
         </Flex>
 

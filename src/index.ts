@@ -18,7 +18,11 @@ import {
   closeSession,
   createSession,
   deleteAllEvents,
+  getFilteredEvents,
+  getMostRecentSession,
   getRecentEvents,
+  getSession,
+  getSessionEventCount,
   initDb,
   insertRawEvent,
   updateSessionMetadata,
@@ -217,6 +221,95 @@ app.post('/api/events/reset', (c) => {
   return c.json({ ok: true })
 })
 
+app.get('/api/export', (c) => {
+  // Parse & validate query params
+  const rawLimit = Number(c.req.query('limit') ?? 1000)
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 5000) : 1000
+  const rawOffset = Number(c.req.query('offset') ?? 0)
+  const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0
+  const typeParam = c.req.query('type')
+  const types = typeParam ? typeParam.split(',').map((t) => t.trim()).filter(Boolean) : undefined
+  const levelParam = c.req.query('level') ?? ''
+  const sessionParam = c.req.query('session') ?? ''
+
+  // Resolve session
+  const session = sessionParam
+    ? getSession(db, sessionParam)
+    : getMostRecentSession(db)
+
+  if (!session) {
+    return c.json({ ok: false, error: sessionParam ? 'Session not found' : 'No sessions available' }, 404)
+  }
+
+  // Fetch total event count for this session
+  const totalEvents = getSessionEventCount(db, session.id)
+
+  // Fetch one extra row to detect has_more
+  const rows = getFilteredEvents(db, {
+    sessionId: session.id,
+    types,
+    limit: limit + 1,
+    offset,
+  })
+
+  // Curate events and apply post-curation level filter
+  const curated: CuratedEvent[] = []
+  for (const row of rows) {
+    try {
+      const event = curateEvent(JSON.parse(row.raw_json), row.timestamp)
+      if (!event) continue
+      if (levelParam && (event.level ?? '') !== levelParam) continue
+      curated.push(event)
+    } catch { /* skip malformed rows */ }
+  }
+
+  // Determine has_more from the extra row
+  const hasMore = curated.length > limit
+  const exportedEvents = curated.slice(0, limit)
+
+  // Build session header line
+  const now = new Date()
+  const header = {
+    _type: 'session' as const,
+    session_id: session.id,
+    app_name: session.app_name,
+    platform: session.platform,
+    connected_at: session.connected_at,
+    disconnected_at: session.disconnected_at,
+    exported_at: now.toISOString(),
+    total_events: totalEvents,
+    exported_events: exportedEvents.length,
+    has_more: hasMore,
+    filters_applied: {
+      ...(types ? { type: types } : {}),
+      ...(levelParam ? { level: levelParam } : {}),
+    },
+    pagination: { limit, offset },
+  }
+
+  // Build JSONL body
+  const lines = [JSON.stringify(header)]
+  for (const event of exportedEvents) {
+    lines.push(JSON.stringify(event))
+  }
+  const body = lines.join('\n') + '\n'
+
+  // Build filename
+  const idPrefix = session.id.slice(0, 8)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+  const filename = `reactotron-export-${idPrefix}-${ts}.jsonl`
+
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/x-ndjson',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Access-Control-Allow-Origin': '*',
+    },
+  })
+})
+
 app.get('/api/state', async (c) => {
   if (!existsSync(STATE_PATH)) {
     return c.json({ ok: false, error: 'state.json not found' }, 404)
@@ -241,7 +334,7 @@ app.get('/', (c) => {
   return c.json({
     service: 'reactotron-llm-proxy',
     ok: true,
-    endpoints: ['/health', '/dump-state', '/api/events', '/api/state', '/ws'],
+    endpoints: ['/health', '/dump-state', '/api/events', '/api/export', '/api/state', '/ws'],
   })
 })
 
