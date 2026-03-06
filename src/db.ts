@@ -42,6 +42,9 @@ export function initDb(dbPath: string): Database {
 const stmtCache = new WeakMap<Database, {
   insertEvent: ReturnType<Database['prepare']>
   recentEvents: ReturnType<Database['prepare']>
+  getSession: ReturnType<Database['prepare']>
+  getMostRecentSession: ReturnType<Database['prepare']>
+  sessionEventCount: ReturnType<Database['prepare']>
 }>()
 
 function getStatements(db: Database) {
@@ -53,6 +56,15 @@ function getStatements(db: Database) {
       ),
       recentEvents: db.prepare(
         'SELECT id, timestamp, type, raw_json FROM raw_events ORDER BY id DESC LIMIT ?',
+      ),
+      getSession: db.prepare(
+        'SELECT id, connected_at, disconnected_at, app_name, platform, client_metadata FROM sessions WHERE id = ?',
+      ),
+      getMostRecentSession: db.prepare(
+        'SELECT id, connected_at, disconnected_at, app_name, platform, client_metadata FROM sessions ORDER BY connected_at DESC LIMIT 1',
+      ),
+      sessionEventCount: db.prepare(
+        'SELECT COUNT(*) as count FROM raw_events WHERE session_id = ?',
       ),
     }
     stmtCache.set(db, cached)
@@ -103,4 +115,50 @@ export function getRecentEvents(
 
 export function deleteAllEvents(db: Database): void {
   db.exec('DELETE FROM raw_events')
+}
+
+export type SessionRow = {
+  id: string
+  connected_at: string
+  disconnected_at: string | null
+  app_name: string | null
+  platform: string | null
+  client_metadata: string | null
+}
+
+export function getSession(db: Database, sessionId: string): SessionRow | null {
+  const { getSession: stmt } = getStatements(db)
+  return (stmt.get(sessionId) as SessionRow) ?? null
+}
+
+export function getMostRecentSession(db: Database): SessionRow | null {
+  const { getMostRecentSession: stmt } = getStatements(db)
+  return (stmt.get() as SessionRow) ?? null
+}
+
+export function getSessionEventCount(db: Database, sessionId: string): number {
+  const { sessionEventCount } = getStatements(db)
+  const row = sessionEventCount.get(sessionId) as { count: number } | undefined
+  return row?.count ?? 0
+}
+
+type RawEventRow = { id: number; timestamp: string; type: string; raw_json: string }
+
+export function getFilteredEvents(
+  db: Database,
+  opts: { sessionId: string; types?: string[]; limit: number; offset: number },
+): RawEventRow[] {
+  const params: unknown[] = [opts.sessionId]
+  let sql = 'SELECT id, timestamp, type, raw_json FROM raw_events WHERE session_id = ?'
+
+  if (opts.types && opts.types.length > 0) {
+    const placeholders = opts.types.map(() => '?').join(', ')
+    sql += ` AND type IN (${placeholders})`
+    params.push(...opts.types)
+  }
+
+  sql += ' ORDER BY id ASC LIMIT ? OFFSET ?'
+  params.push(opts.limit, opts.offset)
+
+  return db.prepare(sql).all(...params) as RawEventRow[]
 }
