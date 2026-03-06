@@ -23,6 +23,7 @@ import {
 import type { CuratedEvent } from '@shared/types'
 import EventCard from './components/EventCard'
 import FilterBar from './components/FilterBar'
+import SessionDetail from './components/SessionDetail'
 import SessionTree from './components/SessionTree'
 
 type EventsResponse = {
@@ -336,17 +337,11 @@ export default function App() {
             }
           />
         ) : (
-          <Box>
-            <Button
-              size="sm"
-              variant="outline"
-              mb={4}
-              onClick={() => setViewState({ tab: 'history', view: 'list' })}
-            >
-              Back to sessions
-            </Button>
-            <Text color="gray.400">Session detail view loading... (session: {viewState.sessionId})</Text>
-          </Box>
+          <SessionDetail
+            apiBase={apiBase}
+            sessionId={viewState.sessionId}
+            onBack={() => setViewState({ tab: 'history', view: 'list' })}
+          />
         )}
       </VStack>
     </Box>
