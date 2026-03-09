@@ -162,25 +162,24 @@ test.describe('Session stats', () => {
     expect(stats.latency).toBeNull()
   })
 
-  test('event reset invalidates cached stats', async ({ page, request }) => {
+  test('event reset clears all sessions and events', async ({ page, request }) => {
     await request.post(`${API_BASE}/api/events/reset`)
     await seedEvents(page, [
       { type: 'log', payload: { level: 'error', message: 'before reset' } },
     ])
 
-    // Stats should show error
+    // Session should exist with stats
     let sessionsRes = await request.get(`${API_BASE}/api/sessions`)
-    let session = (await sessionsRes.json()).sessions[0]
-    expect(session.stats.error_count).toBeGreaterThanOrEqual(1)
+    let json = await sessionsRes.json()
+    expect(json.sessions.length).toBeGreaterThanOrEqual(1)
 
-    // Reset events
+    // Reset everything
     await request.post(`${API_BASE}/api/events/reset`)
 
-    // Stats should now show zero (recomputed from empty events)
+    // Sessions list should now be empty
     sessionsRes = await request.get(`${API_BASE}/api/sessions`)
-    session = (await sessionsRes.json()).sessions[0]
-    expect(session.stats.total_events).toBe(0)
-    expect(session.stats.error_count).toBe(0)
+    json = await sessionsRes.json()
+    expect(json.sessions).toHaveLength(0)
   })
 })
 

@@ -195,7 +195,7 @@ export function sessionExists(db: Database, sessionId: string): boolean {
 
 export function deleteAllEvents(db: Database): void {
   db.exec('DELETE FROM raw_events')
-  db.exec('UPDATE sessions SET stats_json = NULL')
+  db.exec('DELETE FROM sessions')
 }
 
 export type SessionRow = {
