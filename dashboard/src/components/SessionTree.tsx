@@ -239,7 +239,7 @@ export default function SessionTree({
               onChange={() => setBookmarkedOnly(!bookmarkedOnly)}
             />
           </HStack>
-          <Button size="xs" variant="outline" onClick={() => loadSessions().catch(() => undefined)}>
+          <Button size="xs" variant="outline" color="gray.300" onClick={() => loadSessions().catch(() => undefined)}>
             Refresh
           </Button>
         </HStack>
