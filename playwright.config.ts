@@ -38,5 +38,11 @@ export default defineConfig({
       testMatch: 'tests/dashboard.spec.ts',
       use: { browserName: 'chromium' },
     },
+    {
+      name: 'export',
+      testMatch: 'tests/export.spec.ts',
+      use: { browserName: 'chromium' },
+      dependencies: ['api', 'ws'],
+    },
   ],
 })
