@@ -11,7 +11,8 @@
     "dashboard:preview": "bun run --cwd dashboard preview",
     "test": "bunx playwright test",
     "test:api": "bunx playwright test --project=api",
-    "test:dashboard": "bunx playwright test --project=dashboard"
+    "test:dashboard": "bunx playwright test --project=dashboard",
+    "test:export": "bunx playwright test --project=export"
   },
   "engines": {
     "bun": ">=1.1.0"
