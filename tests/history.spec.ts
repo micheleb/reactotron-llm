@@ -166,8 +166,8 @@ test.describe('Session tree', () => {
     await openDashboard(page)
     await switchToHistory(page)
 
-    // Either shows sessions or empty state
-    const sessionTreeOrEmpty = page.getByText(/Sessions|No sessions recorded/)
+    // Either shows sessions heading or empty state message
+    const sessionTreeOrEmpty = page.getByText(/Sessions \(\d+\)|No sessions recorded/)
     await expect(sessionTreeOrEmpty).toBeVisible()
   })
 
