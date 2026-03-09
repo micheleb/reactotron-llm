@@ -23,6 +23,7 @@ import {
 import type { CuratedEvent } from '@shared/types'
 import EventCard from './components/EventCard'
 import FilterBar from './components/FilterBar'
+import SessionCompare from './components/SessionCompare'
 import SessionDetail from './components/SessionDetail'
 import SessionTree from './components/SessionTree'
 
@@ -45,6 +46,7 @@ type ViewState =
   | { tab: 'live' }
   | { tab: 'history'; view: 'list' }
   | { tab: 'history'; view: 'session'; sessionId: string }
+  | { tab: 'history'; view: 'compare'; sessionA: string; sessionB: string }
 
 const DEFAULT_API_BASE = 'http://localhost:9090'
 const DEFAULT_WS_URL = 'ws://localhost:9092'
@@ -108,6 +110,8 @@ export default function App() {
   const [urlFilter, setUrlFilter] = useState('')
   const [errorsOnly, setErrorsOnly] = useState(false)
   const [viewState, setViewState] = useState<ViewState>({ tab: 'live' })
+  const [compareMode, setCompareMode] = useState(false)
+  const [selectedForCompare, setSelectedForCompare] = useState<Set<string>>(new Set())
 
   const tabIndex = viewState.tab === 'live' ? 0 : 1
 
@@ -219,6 +223,28 @@ export default function App() {
   }, [errorsOnly, events, levelFilter, typeFilter, urlFilter])
 
   const isSessionDetail = viewState.tab === 'history' && viewState.view === 'session'
+  const isCompareView = viewState.tab === 'history' && viewState.view === 'compare'
+
+  function toggleCompareSelect(sessionId: string) {
+    setSelectedForCompare((prev) => {
+      const next = new Set(prev)
+      if (next.has(sessionId)) {
+        next.delete(sessionId)
+      } else if (next.size < 2) {
+        next.add(sessionId)
+      }
+      return next
+    })
+  }
+
+  function startCompare() {
+    const ids = Array.from(selectedForCompare)
+    if (ids.length === 2) {
+      setViewState({ tab: 'history', view: 'compare', sessionA: ids[0], sessionB: ids[1] })
+      setCompareMode(false)
+      setSelectedForCompare(new Set())
+    }
+  }
 
   return (
     <Box minH="100vh" maxW="100vw" overflowX="auto" bgGradient="linear(to-br, gray.950, black, gray.900)" p={6}>
@@ -311,12 +337,17 @@ export default function App() {
           ) : null}
         </Grid>
 
-        {!isSessionDetail ? (
+        {!isSessionDetail && !isCompareView ? (
           <Tabs
             index={tabIndex}
             onChange={(index) => {
-              if (index === 0) setViewState({ tab: 'live' })
-              else setViewState({ tab: 'history', view: 'list' })
+              if (index === 0) {
+                setViewState({ tab: 'live' })
+                setCompareMode(false)
+                setSelectedForCompare(new Set())
+              } else {
+                setViewState({ tab: 'history', view: 'list' })
+              }
             }}
             variant="enclosed"
             colorScheme="cyan"
@@ -381,17 +412,56 @@ export default function App() {
             </Grid>
           </>
         ) : viewState.view === 'list' ? (
-          <SessionTree
+          <VStack align="stretch" spacing={3}>
+            <HStack spacing={3}>
+              <Button
+                size="sm"
+                variant={compareMode ? 'solid' : 'outline'}
+                colorScheme="cyan"
+                onClick={() => {
+                  setCompareMode(!compareMode)
+                  setSelectedForCompare(new Set())
+                }}
+              >
+                {compareMode ? 'Cancel Compare' : 'Compare Sessions'}
+              </Button>
+              {compareMode && selectedForCompare.size === 2 ? (
+                <Button size="sm" colorScheme="cyan" onClick={startCompare}>
+                  Compare Selected ({selectedForCompare.size}/2)
+                </Button>
+              ) : compareMode ? (
+                <Text fontSize="sm" color="gray.400">
+                  Select 2 sessions to compare ({selectedForCompare.size}/2)
+                </Text>
+              ) : null}
+            </HStack>
+            <SessionTree
+              apiBase={apiBase}
+              onSelectSession={(sessionId) =>
+                setViewState({ tab: 'history', view: 'session', sessionId })
+              }
+              compareMode={compareMode}
+              selectedForCompare={selectedForCompare}
+              onToggleCompareSelect={toggleCompareSelect}
+            />
+          </VStack>
+        ) : viewState.view === 'compare' ? (
+          <SessionCompare
             apiBase={apiBase}
-            onSelectSession={(sessionId) =>
-              setViewState({ tab: 'history', view: 'session', sessionId })
-            }
+            sessionA={viewState.sessionA}
+            sessionB={viewState.sessionB}
+            onBack={() => setViewState({ tab: 'history', view: 'list' })}
           />
         ) : (
           <SessionDetail
             apiBase={apiBase}
             sessionId={viewState.sessionId}
             onBack={() => setViewState({ tab: 'history', view: 'list' })}
+            onCompareWith={() => {
+              setCompareMode(true)
+              setSelectedForCompare(new Set([viewState.sessionId]))
+              setViewState({ tab: 'history', view: 'list' })
+            }}
           />
         )}
       </VStack>

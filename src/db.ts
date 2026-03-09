@@ -1,4 +1,5 @@
 import { Database } from 'bun:sqlite'
+import type { SessionStats } from './shared/types'
 
 export function initDb(dbPath: string): Database {
   const db = new Database(dbPath, { create: true })
@@ -32,6 +33,10 @@ export function initDb(dbPath: string): Database {
   db.exec('CREATE INDEX IF NOT EXISTS idx_events_session ON raw_events(session_id)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_events_type ON raw_events(type)')
 
+  // Migrate: add new columns (idempotent — SQLite throws if column already exists)
+  try { db.exec('ALTER TABLE sessions ADD COLUMN stats_json TEXT') } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE sessions ADD COLUMN is_important INTEGER NOT NULL DEFAULT 0') } catch { /* already exists */ }
+
   // Close orphaned sessions from previous runs
   const now = new Date().toISOString()
   db.prepare('UPDATE sessions SET disconnected_at = ? WHERE disconnected_at IS NULL').run(now)
@@ -43,11 +48,15 @@ const stmtCache = new WeakMap<Database, {
   insertEvent: ReturnType<Database['prepare']>
   recentEvents: ReturnType<Database['prepare']>
   getSession: ReturnType<Database['prepare']>
+  getSessionFull: ReturnType<Database['prepare']>
   getMostRecentSession: ReturnType<Database['prepare']>
   sessionEventCount: ReturnType<Database['prepare']>
   listSessions: ReturnType<Database['prepare']>
+  listImportantSessions: ReturnType<Database['prepare']>
   sessionEvents: ReturnType<Database['prepare']>
   sessionExists: ReturnType<Database['prepare']>
+  updateStats: ReturnType<Database['prepare']>
+  setBookmark: ReturnType<Database['prepare']>
 }>()
 
 function getStatements(db: Database) {
@@ -63,6 +72,9 @@ function getStatements(db: Database) {
       getSession: db.prepare(
         'SELECT id, connected_at, disconnected_at, app_name, platform, client_metadata FROM sessions WHERE id = ?',
       ),
+      getSessionFull: db.prepare(
+        'SELECT id, connected_at, disconnected_at, app_name, platform, client_metadata, stats_json, is_important FROM sessions WHERE id = ?',
+      ),
       getMostRecentSession: db.prepare(
         'SELECT id, connected_at, disconnected_at, app_name, platform, client_metadata FROM sessions ORDER BY connected_at DESC LIMIT 1',
       ),
@@ -71,9 +83,20 @@ function getStatements(db: Database) {
       ),
       listSessions: db.prepare(
         `SELECT s.id, s.connected_at, s.disconnected_at, s.app_name, s.platform,
+                s.stats_json, s.is_important,
                 COUNT(e.id) as event_count
          FROM sessions s
          LEFT JOIN raw_events e ON e.session_id = s.id
+         GROUP BY s.id
+         ORDER BY s.connected_at DESC`,
+      ),
+      listImportantSessions: db.prepare(
+        `SELECT s.id, s.connected_at, s.disconnected_at, s.app_name, s.platform,
+                s.stats_json, s.is_important,
+                COUNT(e.id) as event_count
+         FROM sessions s
+         LEFT JOIN raw_events e ON e.session_id = s.id
+         WHERE s.is_important = 1
          GROUP BY s.id
          ORDER BY s.connected_at DESC`,
       ),
@@ -82,6 +105,12 @@ function getStatements(db: Database) {
       ),
       sessionExists: db.prepare(
         'SELECT 1 FROM sessions WHERE id = ?',
+      ),
+      updateStats: db.prepare(
+        'UPDATE sessions SET stats_json = ? WHERE id = ?',
+      ),
+      setBookmark: db.prepare(
+        'UPDATE sessions SET is_important = ? WHERE id = ?',
       ),
     }
     stmtCache.set(db, cached)
@@ -131,23 +160,24 @@ export function getRecentEvents(
   return recentEvents.all(limit, offset) as Array<{ id: number; timestamp: string; type: string; raw_json: string }>
 }
 
-export function listSessions(db: Database): Array<{
+export type SessionListRow = {
   id: string
   connected_at: string
   disconnected_at: string | null
   app_name: string | null
   platform: string | null
   event_count: number
-}> {
+  stats_json: string | null
+  is_important: number
+}
+
+export function listSessions(db: Database, opts?: { isImportant?: boolean }): SessionListRow[] {
+  if (opts?.isImportant) {
+    const { listImportantSessions: stmt } = getStatements(db)
+    return stmt.all() as SessionListRow[]
+  }
   const { listSessions: stmt } = getStatements(db)
-  return stmt.all() as Array<{
-    id: string
-    connected_at: string
-    disconnected_at: string | null
-    app_name: string | null
-    platform: string | null
-    event_count: number
-  }>
+  return stmt.all() as SessionListRow[]
 }
 
 export function getSessionEvents(
@@ -165,6 +195,7 @@ export function sessionExists(db: Database, sessionId: string): boolean {
 
 export function deleteAllEvents(db: Database): void {
   db.exec('DELETE FROM raw_events')
+  db.exec('DELETE FROM sessions')
 }
 
 export type SessionRow = {
@@ -176,9 +207,19 @@ export type SessionRow = {
   client_metadata: string | null
 }
 
+export type SessionFullRow = SessionRow & {
+  stats_json: string | null
+  is_important: number
+}
+
 export function getSession(db: Database, sessionId: string): SessionRow | null {
   const { getSession: stmt } = getStatements(db)
   return (stmt.get(sessionId) as SessionRow) ?? null
+}
+
+export function getSessionFull(db: Database, sessionId: string): SessionFullRow | null {
+  const { getSessionFull: stmt } = getStatements(db)
+  return (stmt.get(sessionId) as SessionFullRow) ?? null
 }
 
 export function getMostRecentSession(db: Database): SessionRow | null {
@@ -190,6 +231,16 @@ export function getSessionEventCount(db: Database, sessionId: string): number {
   const { sessionEventCount } = getStatements(db)
   const row = sessionEventCount.get(sessionId) as { count: number } | undefined
   return row?.count ?? 0
+}
+
+export function updateSessionStats(db: Database, sessionId: string, stats: SessionStats): void {
+  const { updateStats } = getStatements(db)
+  updateStats.run(JSON.stringify(stats), sessionId)
+}
+
+export function setBookmark(db: Database, sessionId: string, isImportant: boolean): void {
+  const { setBookmark: stmt } = getStatements(db)
+  stmt.run(isImportant ? 1 : 0, sessionId)
 }
 
 type RawEventRow = { id: number; timestamp: string; type: string; raw_json: string }

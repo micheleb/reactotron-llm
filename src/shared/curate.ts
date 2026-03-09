@@ -1,4 +1,5 @@
-import type { CuratedEvent, JsonObject } from './types'
+import type { CuratedEvent, JsonObject, SessionStats } from './types'
+import { STATS_VERSION } from './types'
 
 export function asObject(value: unknown): JsonObject | undefined {
   if (value && typeof value === 'object') return value as JsonObject
@@ -530,4 +531,112 @@ export function curateEvent(payload: unknown, timestamp: string): CuratedEvent |
     (event.details !== undefined && Object.keys(event.details).length > 0)
 
   return hasUsefulFields ? event : null
+}
+
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0
+  const index = (p / 100) * (sorted.length - 1)
+  const lower = Math.floor(index)
+  const upper = Math.ceil(index)
+  if (lower === upper) return sorted[lower]
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower)
+}
+
+function extractBenchmarkTotalMs(steps: unknown): number | null {
+  if (!Array.isArray(steps) || steps.length === 0) return null
+
+  let totalDelta = 0
+  let hasDelta = false
+
+  for (const step of steps) {
+    if (step && typeof step === 'object') {
+      const s = step as Record<string, unknown>
+      const delta = typeof s.delta === 'number' ? s.delta : typeof s.time === 'number' ? s.time : null
+      if (delta !== null && Number.isFinite(delta)) {
+        totalDelta += delta
+        hasDelta = true
+      }
+    }
+  }
+
+  return hasDelta ? totalDelta : null
+}
+
+export function computeSessionStats(events: CuratedEvent[]): SessionStats {
+  const eventCounts: Record<string, number> = {}
+  let errorCount = 0
+  let warningCount = 0
+  let failedNetworkCount = 0
+  let networkCount = 0
+  let slowestRequest: SessionStats['slowest_request'] = null
+  let longestBenchmark: SessionStats['longest_benchmark'] = null
+  const durations: number[] = []
+
+  for (const event of events) {
+    // Count by type
+    eventCounts[event.type] = (eventCounts[event.type] ?? 0) + 1
+
+    // Count errors and warnings
+    if (event.level === 'error') errorCount++
+    if (event.level === 'warning') warningCount++
+
+    // Network stats
+    if (event.network) {
+      networkCount++
+
+      const isFailed =
+        (event.network.status !== undefined && event.network.status >= 400) ||
+        (typeof event.network.error === 'string' && event.network.error.length > 0)
+      if (isFailed) failedNetworkCount++
+
+      if (event.network.durationMs !== undefined && Number.isFinite(event.network.durationMs)) {
+        durations.push(event.network.durationMs)
+        if (slowestRequest === null || event.network.durationMs > slowestRequest.durationMs) {
+          slowestRequest = {
+            url: event.network.url ?? 'unknown',
+            method: (event.network.method ?? 'GET').toUpperCase(),
+            durationMs: event.network.durationMs,
+          }
+        }
+      }
+    }
+
+    // Benchmark stats
+    if (event.benchmark) {
+      const totalMs = extractBenchmarkTotalMs(event.benchmark.steps)
+      if (totalMs !== null) {
+        if (longestBenchmark === null || totalMs > longestBenchmark.totalMs) {
+          longestBenchmark = {
+            title: event.benchmark.title ?? 'Untitled',
+            totalMs,
+          }
+        }
+      }
+    }
+  }
+
+  // Compute latency percentiles
+  let latency: SessionStats['latency'] = null
+  if (durations.length >= 2) {
+    durations.sort((a, b) => a - b)
+    latency = {
+      p50: Math.round(percentile(durations, 50)),
+      p90: Math.round(percentile(durations, 90)),
+      p95: Math.round(percentile(durations, 95)),
+      p99: Math.round(percentile(durations, 99)),
+    }
+  }
+
+  return {
+    version: STATS_VERSION,
+    total_events: events.length,
+    event_counts: eventCounts,
+    error_count: errorCount,
+    warning_count: warningCount,
+    failed_network_count: failedNetworkCount,
+    network_count: networkCount,
+    slowest_request: slowestRequest,
+    longest_benchmark: longestBenchmark,
+    latency,
+  }
 }

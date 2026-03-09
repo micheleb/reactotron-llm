@@ -6,8 +6,11 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 
 import type { CuratedEvent } from './shared/types'
+import type { SessionStats } from './shared/types'
+import { STATS_VERSION } from './shared/types'
 import {
   asObject,
+  computeSessionStats,
   curateEvent,
   firstString,
   getByPath,
@@ -24,12 +27,16 @@ import {
   getSession,
   getSessionEventCount,
   getSessionEvents,
+  getSessionFull,
   initDb,
   insertRawEvent,
   listSessions,
   sessionExists,
+  setBookmark,
   updateSessionMetadata,
+  updateSessionStats,
 } from './db'
+import type { SessionFullRow, SessionListRow } from './db'
 
 const PORT = Number(Bun.env.PORT ?? 9090)
 const DASHBOARD_WS_PORT = Number(Bun.env.DASHBOARD_WS_PORT ?? 9092)
@@ -67,6 +74,70 @@ function broadcastDashboard(payload: unknown): void {
     if (client.readyState === 1) {
       client.send(serialized)
     }
+  }
+}
+
+/** Curate all raw events for a session and compute stats. */
+function computeStatsForSession(sessionId: string): SessionStats {
+  const rows = getSessionEvents(db, sessionId)
+  const events: CuratedEvent[] = []
+  for (const row of rows) {
+    try {
+      const curated = curateEvent(JSON.parse(row.raw_json), row.timestamp)
+      if (curated) events.push(curated)
+    } catch { /* skip malformed rows */ }
+  }
+  return computeSessionStats(events)
+}
+
+/** Get stats for a session, using cache when available and valid. */
+function getOrComputeStats(sessionId: string, statsJson: string | null, disconnectedAt: string | null): SessionStats {
+  // Try cached stats
+  if (statsJson) {
+    try {
+      const cached = JSON.parse(statsJson) as SessionStats
+      if (cached.version === STATS_VERSION) return cached
+    } catch { /* recompute */ }
+  }
+
+  // Compute fresh
+  const stats = computeStatsForSession(sessionId)
+
+  // Cache for completed sessions (lazy backfill)
+  if (disconnectedAt) {
+    updateSessionStats(db, sessionId, stats)
+  }
+
+  return stats
+}
+
+/** Format a session list row for the API response. */
+function formatSessionForApi(row: SessionListRow) {
+  const stats = getOrComputeStats(row.id, row.stats_json, row.disconnected_at)
+  return {
+    id: row.id,
+    connected_at: row.connected_at,
+    disconnected_at: row.disconnected_at,
+    app_name: row.app_name,
+    platform: row.platform,
+    event_count: row.event_count,
+    is_important: row.is_important === 1,
+    stats,
+  }
+}
+
+/** Format a full session row for the API response. */
+function formatFullSessionForApi(row: SessionFullRow, eventCount: number) {
+  const stats = getOrComputeStats(row.id, row.stats_json, row.disconnected_at)
+  return {
+    id: row.id,
+    connected_at: row.connected_at,
+    disconnected_at: row.disconnected_at,
+    app_name: row.app_name,
+    platform: row.platform,
+    event_count: eventCount,
+    is_important: row.is_important === 1,
+    stats,
   }
 }
 
@@ -130,6 +201,15 @@ function wsBehavior() {
     onClose(_event: CloseEvent, ws: ServerWebSocket<AppWsData>) {
       appClients.delete(ws)
       closeSession(db, sessionId)
+
+      // Compute and cache stats on disconnect
+      try {
+        const stats = computeStatsForSession(sessionId)
+        updateSessionStats(db, sessionId, stats)
+      } catch (err) {
+        console.error(`[ws] failed to compute stats for session=${sessionId}:`, err)
+      }
+
       console.log(`[ws] client disconnected session=${sessionId} total=${appClients.size}`)
     },
     onError(event: Event) {
@@ -219,8 +299,114 @@ app.get('/api/events', (c) => {
 })
 
 app.get('/api/sessions', (c) => {
-  const sessions = listSessions(db)
+  const isImportant = c.req.query('is_important') === 'true'
+  const rows = listSessions(db, isImportant ? { isImportant: true } : undefined)
+  const sessions = rows.map(formatSessionForApi)
   return c.json({ ok: true, sessions })
+})
+
+// NOTE: /api/sessions/compare must be registered BEFORE /api/sessions/:id
+// to avoid Hono matching "compare" as a session ID parameter.
+app.get('/api/sessions/compare', (c) => {
+  const idA = c.req.query('a') ?? ''
+  const idB = c.req.query('b') ?? ''
+
+  if (!idA || !idB) {
+    return c.json({ ok: false, error: 'Both query parameters "a" and "b" are required' }, 400)
+  }
+
+  const sessionA = getSessionFull(db, idA)
+  const sessionB = getSessionFull(db, idB)
+
+  if (!sessionA || !sessionB) {
+    const missing = !sessionA ? idA : idB
+    return c.json({ ok: false, error: `Session not found: ${missing}` }, 404)
+  }
+
+  const eventCountA = getSessionEventCount(db, idA)
+  const eventCountB = getSessionEventCount(db, idB)
+
+  // Get curated events for both sessions
+  const rowsA = getSessionEvents(db, idA)
+  const rowsB = getSessionEvents(db, idB)
+
+  const curateRows = (rows: typeof rowsA) => {
+    const events: CuratedEvent[] = []
+    for (const row of rows) {
+      try {
+        const curated = curateEvent(JSON.parse(row.raw_json), row.timestamp)
+        if (curated) events.push(curated)
+      } catch { /* skip */ }
+    }
+    return events
+  }
+
+  const eventsA = curateRows(rowsA)
+  const eventsB = curateRows(rowsB)
+
+  // Group events by type with cap
+  const EVENT_CAP = 100
+  const allTypes = new Set([...eventsA.map((e) => e.type), ...eventsB.map((e) => e.type)])
+  const byType: Record<string, { a_count: number; b_count: number; a_events: CuratedEvent[]; b_events: CuratedEvent[] }> = {}
+
+  for (const type of allTypes) {
+    const aOfType = eventsA.filter((e) => e.type === type)
+    const bOfType = eventsB.filter((e) => e.type === type)
+    byType[type] = {
+      a_count: aOfType.length,
+      b_count: bOfType.length,
+      a_events: aOfType.slice(0, EVENT_CAP),
+      b_events: bOfType.slice(0, EVENT_CAP),
+    }
+  }
+
+  return c.json({
+    ok: true,
+    sessions: {
+      a: formatFullSessionForApi(sessionA, eventCountA),
+      b: formatFullSessionForApi(sessionB, eventCountB),
+    },
+    by_type: byType,
+  })
+})
+
+app.get('/api/sessions/:id', (c) => {
+  const sessionId = c.req.param('id')
+  const session = getSessionFull(db, sessionId)
+
+  if (!session) {
+    return c.json({ ok: false, error: 'Session not found' }, 404)
+  }
+
+  const eventCount = getSessionEventCount(db, sessionId)
+  return c.json({ ok: true, session: formatFullSessionForApi(session, eventCount) })
+})
+
+app.patch('/api/sessions/:id', async (c) => {
+  const sessionId = c.req.param('id')
+
+  if (!sessionExists(db, sessionId)) {
+    return c.json({ ok: false, error: 'Session not found' }, 404)
+  }
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ ok: false, error: 'Invalid JSON body' }, 400)
+  }
+
+  if (!body || typeof body !== 'object') {
+    return c.json({ ok: false, error: 'Request body must be an object' }, 400)
+  }
+
+  const { is_important } = body as Record<string, unknown>
+  if (typeof is_important !== 'boolean') {
+    return c.json({ ok: false, error: 'is_important must be a boolean' }, 400)
+  }
+
+  setBookmark(db, sessionId, is_important)
+  return c.json({ ok: true })
 })
 
 app.get('/api/sessions/:id/events', (c) => {
@@ -271,6 +457,12 @@ app.get('/api/export', (c) => {
   // Fetch total event count for this session
   const totalEvents = getSessionEventCount(db, session.id)
 
+  // Compute stats for export header
+  const sessionFull = getSessionFull(db, session.id)
+  const stats = sessionFull
+    ? getOrComputeStats(session.id, sessionFull.stats_json, session.disconnected_at)
+    : null
+
   // Fetch one extra row to detect has_more
   const rows = getFilteredEvents(db, {
     sessionId: session.id,
@@ -307,6 +499,7 @@ app.get('/api/export', (c) => {
     total_events: totalEvents,
     exported_events: exportedEvents.length,
     has_more: hasMore,
+    stats,
     filters_applied: {
       ...(types ? { type: types } : {}),
       ...(levelParam ? { level: levelParam } : {}),
