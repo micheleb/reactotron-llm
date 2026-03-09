@@ -64,7 +64,7 @@ export default function FilterBar({
         <Checkbox isChecked={errorsOnly} onChange={(e) => onErrorsOnlyChange(e.target.checked)} pb={1}>
           Errors only
         </Checkbox>
-        <Button size="sm" variant="outline" onClick={onReset}>
+        <Button size="sm" variant="outline" color="gray.300" _hover={{ color: 'white', bg: 'gray.700' }} onClick={onReset}>
           Reset
         </Button>
       </HStack>

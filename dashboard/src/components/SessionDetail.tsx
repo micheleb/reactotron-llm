@@ -165,7 +165,7 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
         <Text color="red.400">{error}</Text>
         <HStack>
           <Button size="sm" onClick={() => loadSession().catch(() => undefined)}>Retry</Button>
-          <Button size="sm" variant="outline" colorScheme="gray" color="gray.300" onClick={onBack}>Back to sessions</Button>
+          <Button size="sm" variant="outline" color="gray.300" _hover={{ color: 'white', bg: 'gray.700' }} onClick={onBack}>Back to sessions</Button>
         </HStack>
       </VStack>
     )
@@ -178,7 +178,7 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
       <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
         <HStack justify="space-between" align="start" wrap="wrap" gap={3}>
           <HStack spacing={3} align="center">
-            <Button size="sm" variant="outline" colorScheme="gray" color="gray.300" onClick={onBack}>
+            <Button size="sm" variant="outline" color="gray.300" _hover={{ color: 'white', bg: 'gray.700' }} onClick={onBack}>
               Back
             </Button>
             <Box>

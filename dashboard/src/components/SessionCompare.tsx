@@ -129,7 +129,7 @@ export default function SessionCompare({ apiBase, sessionA, sessionB, onBack }: 
         <Text color="red.400">{error ?? 'Unknown error'}</Text>
         <HStack>
           <Button size="sm" onClick={() => loadComparison().catch(() => undefined)}>Retry</Button>
-          <Button size="sm" variant="outline" onClick={onBack}>Back</Button>
+          <Button size="sm" variant="outline" color="gray.300" _hover={{ color: 'white', bg: 'gray.700' }} onClick={onBack}>Back</Button>
         </HStack>
       </VStack>
     )
@@ -147,7 +147,7 @@ export default function SessionCompare({ apiBase, sessionA, sessionB, onBack }: 
   return (
     <VStack align="stretch" spacing={4}>
       <HStack>
-        <Button size="sm" variant="outline" onClick={onBack}>Back</Button>
+        <Button size="sm" variant="outline" color="gray.300" _hover={{ color: 'white', bg: 'gray.700' }} onClick={onBack}>Back</Button>
         <Heading size="md" color="gray.100">Session Comparison</Heading>
       </HStack>
 
