@@ -1,35 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Accordion,
-  AccordionButton,
-  AccordionIcon,
-  AccordionItem,
-  AccordionPanel,
   Badge,
   Box,
   Button,
   Code,
-  Checkbox,
   Flex,
   Grid,
   GridItem,
   Heading,
   HStack,
   Input,
-  Select,
   Stat,
   StatLabel,
   StatNumber,
   Tab,
   TabList,
-  TabPanel,
-  TabPanels,
   Tabs,
   Text,
   VStack,
 } from '@chakra-ui/react'
 
 import type { CuratedEvent } from '@shared/types'
+import EventCard from './components/EventCard'
+import FilterBar from './components/FilterBar'
+import SessionDetail from './components/SessionDetail'
+import SessionTree from './components/SessionTree'
 
 type EventsResponse = {
   ok: boolean
@@ -45,6 +40,11 @@ type HealthResponse = {
   dashboardWsPort: number
   latestStateAt: string | null
 }
+
+type ViewState =
+  | { tab: 'live' }
+  | { tab: 'history'; view: 'list' }
+  | { tab: 'history'; view: 'session'; sessionId: string }
 
 const DEFAULT_API_BASE = 'http://localhost:9090'
 const DEFAULT_WS_URL = 'ws://localhost:9092'
@@ -93,17 +93,6 @@ function byNewest(a: CuratedEvent, b: CuratedEvent): number {
   return new Date(b.ts).getTime() - new Date(a.ts).getTime()
 }
 
-function formatTime(ts: string): string {
-  const date = new Date(ts)
-  if (Number.isNaN(date.getTime())) return ts
-
-  const hh = String(date.getHours()).padStart(2, '0')
-  const mm = String(date.getMinutes()).padStart(2, '0')
-  const ss = String(date.getSeconds()).padStart(2, '0')
-  const ms = String(date.getMilliseconds()).padStart(3, '0')
-  return `${hh}:${mm}:${ss}.${ms}`
-}
-
 export default function App() {
   const [apiBase, setApiBase] = useState(DEFAULT_API_BASE)
   const [wsUrl, setWsUrl] = useState(DEFAULT_WS_URL)
@@ -118,6 +107,9 @@ export default function App() {
   const [levelFilter, setLevelFilter] = useState('')
   const [urlFilter, setUrlFilter] = useState('')
   const [errorsOnly, setErrorsOnly] = useState(false)
+  const [viewState, setViewState] = useState<ViewState>({ tab: 'live' })
+
+  const tabIndex = viewState.tab === 'live' ? 0 : 1
 
   async function loadHealth() {
     const res = await fetch(`${apiBase}/health`)
@@ -226,6 +218,8 @@ export default function App() {
       .sort(byNewest)
   }, [errorsOnly, events, levelFilter, typeFilter, urlFilter])
 
+  const isSessionDetail = viewState.tab === 'history' && viewState.view === 'session'
+
   return (
     <Box minH="100vh" maxW="100vw" overflowX="auto" bgGradient="linear(to-br, gray.950, black, gray.900)" p={6}>
       <VStack align="stretch" spacing={4}>
@@ -238,30 +232,34 @@ export default function App() {
             <Badge colorScheme={wsStatus === 'open' ? 'green' : wsStatus === 'connecting' ? 'yellow' : 'red'}>
               WS {wsStatus}
             </Badge>
-            <Button size="sm" onClick={() => loadEvents().catch(() => undefined)}>
-              Refresh Events
-            </Button>
-            <Button size="sm" variant="outline" colorScheme="red" onClick={() => resetEvents().catch(() => undefined)}>
-              Reset Logs
-            </Button>
-            <Button size="sm" colorScheme="blue" onClick={() => requestDumpState().catch(() => undefined)}>
-              Dump State
-            </Button>
-            <Button
-              size="sm"
-              colorScheme="teal"
-              isDisabled={events.length === 0}
-              onClick={() => {
-                const params = new URLSearchParams()
-                if (typeFilter) params.set('type', typeFilter)
-                if (levelFilter) params.set('level', levelFilter)
-                else if (errorsOnly) params.set('level', 'error')
-                const qs = params.toString()
-                window.open(`${apiBase}/api/export${qs ? `?${qs}` : ''}`)
-              }}
-            >
-              Export
-            </Button>
+            {viewState.tab === 'live' ? (
+              <>
+                <Button size="sm" onClick={() => loadEvents().catch(() => undefined)}>
+                  Refresh Events
+                </Button>
+                <Button size="sm" variant="outline" colorScheme="red" onClick={() => resetEvents().catch(() => undefined)}>
+                  Reset Logs
+                </Button>
+                <Button size="sm" colorScheme="blue" onClick={() => requestDumpState().catch(() => undefined)}>
+                  Dump State
+                </Button>
+                <Button
+                  size="sm"
+                  colorScheme="teal"
+                  isDisabled={events.length === 0}
+                  onClick={() => {
+                    const params = new URLSearchParams()
+                    if (typeFilter) params.set('type', typeFilter)
+                    if (levelFilter) params.set('level', levelFilter)
+                    else if (errorsOnly) params.set('level', 'error')
+                    const qs = params.toString()
+                    window.open(`${apiBase}/api/export${qs ? `?${qs}` : ''}`)
+                  }}
+                >
+                  Export
+                </Button>
+              </>
+            ) : null}
           </HStack>
         </Flex>
 
@@ -281,243 +279,121 @@ export default function App() {
               </HStack>
             </Box>
           </GridItem>
-          <GridItem minW={0}>
-            <Grid templateColumns="repeat(2, 1fr)" gap={3}>
-              <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
-                <Stat>
-                  <StatLabel>App Clients</StatLabel>
-                  <StatNumber>{health?.clients ?? 0}</StatNumber>
-                </Stat>
-              </Box>
-              <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
-                <Stat>
-                  <StatLabel>Error Events</StatLabel>
-                  <StatNumber>{errorCount}</StatNumber>
-                </Stat>
-              </Box>
-              <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
-                <Stat>
-                  <StatLabel>Network Events</StatLabel>
-                  <StatNumber>{networkCount}</StatNumber>
-                </Stat>
-              </Box>
-              <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
-                <Stat>
-                  <StatLabel>Proxy Port</StatLabel>
-                  <StatNumber>{health?.port ?? 9090}</StatNumber>
-                </Stat>
-              </Box>
-            </Grid>
-          </GridItem>
+          {viewState.tab === 'live' ? (
+            <GridItem minW={0}>
+              <Grid templateColumns="repeat(2, 1fr)" gap={3}>
+                <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
+                  <Stat>
+                    <StatLabel>App Clients</StatLabel>
+                    <StatNumber>{health?.clients ?? 0}</StatNumber>
+                  </Stat>
+                </Box>
+                <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
+                  <Stat>
+                    <StatLabel>Error Events</StatLabel>
+                    <StatNumber>{errorCount}</StatNumber>
+                  </Stat>
+                </Box>
+                <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
+                  <Stat>
+                    <StatLabel>Network Events</StatLabel>
+                    <StatNumber>{networkCount}</StatNumber>
+                  </Stat>
+                </Box>
+                <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
+                  <Stat>
+                    <StatLabel>Proxy Port</StatLabel>
+                    <StatNumber>{health?.port ?? 9090}</StatNumber>
+                  </Stat>
+                </Box>
+              </Grid>
+            </GridItem>
+          ) : null}
         </Grid>
-        <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
-          <Heading size="sm" mb={3}>Filters</Heading>
-          <HStack align="end" spacing={3} wrap="wrap" minW={0}>
-            <Box minW="220px">
-              <Text fontSize="sm" mb={1}>Type</Text>
-              <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-                <option value="">All</option>
-                {eventTypes.map((type) => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </Select>
-            </Box>
-            <Box minW="180px">
-              <Text fontSize="sm" mb={1}>Level</Text>
-              <Select value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
-                <option value="">All</option>
-                <option value="error">error</option>
-                <option value="warn">warn</option>
-                <option value="info">info</option>
-                <option value="debug">debug</option>
-              </Select>
-            </Box>
-            <Box minW="260px" flex="1">
-              <Text fontSize="sm" mb={1}>URL contains</Text>
-              <Input value={urlFilter} onChange={(e) => setUrlFilter(e.target.value)} placeholder="/graphql" />
-            </Box>
-            <Checkbox isChecked={errorsOnly} onChange={(e) => setErrorsOnly(e.target.checked)} pb={1}>
-              Errors only
-            </Checkbox>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
+
+        {!isSessionDetail ? (
+          <Tabs
+            index={tabIndex}
+            onChange={(index) => {
+              if (index === 0) setViewState({ tab: 'live' })
+              else setViewState({ tab: 'history', view: 'list' })
+            }}
+            variant="enclosed"
+            colorScheme="cyan"
+          >
+            <TabList>
+              <Tab>Live</Tab>
+              <Tab>History</Tab>
+            </TabList>
+          </Tabs>
+        ) : null}
+
+        {viewState.tab === 'live' ? (
+          <>
+            <FilterBar
+              typeFilter={typeFilter}
+              levelFilter={levelFilter}
+              urlFilter={urlFilter}
+              errorsOnly={errorsOnly}
+              eventTypes={eventTypes}
+              onTypeFilterChange={setTypeFilter}
+              onLevelFilterChange={setLevelFilter}
+              onUrlFilterChange={setUrlFilter}
+              onErrorsOnlyChange={setErrorsOnly}
+              onReset={() => {
                 setTypeFilter('')
                 setLevelFilter('')
                 setUrlFilter('')
                 setErrorsOnly(false)
               }}
-            >
-              Reset
-            </Button>
-          </HStack>
-        </Box>
+            />
 
-        <Grid templateColumns={{ base: '1fr', lg: '3fr 2fr' }} gap={4} minW={0}>
-          <GridItem minW={0}>
-            <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900" maxH="65vh" overflowY="auto" overflowX="auto" minW={0}>
-              <Heading size="sm" mb={3}>Curated Events ({filteredEvents.length}/{events.length})</Heading>
-              <VStack align="stretch" spacing={3}>
-                {filteredEvents.map((event, index) => (
-                  (() => {
-                    const actionDisplay = event.action?.displayName
-                    const actionLabel = event.action?.name ?? event.action?.type
-                    const showActionAsPrimary =
-                      event.type === 'state.action.complete' &&
-                      actionLabel !== undefined &&
-                      actionLabel !== null
-                    const primaryLabel = showActionAsPrimary ? (actionDisplay ?? `action.${actionLabel}`) : event.type
-                    const primaryType = showActionAsPrimary ? 'ACTION' : event.type
-                    const hasActionPayload =
-                      !!event.action && Object.prototype.hasOwnProperty.call(event.action, 'payload')
-                    return (
-                  <Box
-                    key={`${event.ts}-${index}`}
-                    p={3}
-                    borderWidth="1px"
-                    borderColor="gray.700"
-                    borderRadius="md"
-                    bg="gray.950"
-                    borderLeftWidth="4px"
-                    borderLeftColor={event.level === 'error' ? 'red.400' : event.network ? 'cyan.400' : 'blue.400'}
-                    minW={0}
-                  >
-                    <HStack justify="space-between" mb={2} align="center" minW={0}>
-                      <HStack spacing={2} minW={0}>
-                        <Code fontSize="sm" px={2} py={1}>{primaryType}</Code>
-                        <Text fontSize="sm" color="gray.200" fontFamily="mono">{primaryLabel}</Text>
-                        {showActionAsPrimary ? (
-                          <Text fontSize="xs" color="gray.400">({event.type})</Text>
-                        ) : null}
-                      </HStack>
-                      <Box
-                        as="span"
-                        fontSize="sm"
-                        px={2}
-                        py={1}
-                        borderRadius="md"
-                        bg="cyan.700"
-                        color="white"
-                        fontFamily="mono"
-                        fontWeight="700"
-                        lineHeight="1"
-                        title={event.ts}
-                      >
-                        {formatTime(event.ts)}
-                      </Box>
-                    </HStack>
-                    {event.message ? <Text mb={2}>{event.message}</Text> : null}
-                    {event.action ? (
-                      <Box mb={2}>
-                        <Text fontSize="sm" color="orange.300">
-                          Action {event.action.name ?? event.action.type ?? 'unknown'}
-                        </Text>
-                        {hasActionPayload ? (
-                          <Accordion allowToggle mt={2}>
-                            <AccordionItem borderColor="gray.700" borderRadius="md">
-                              <AccordionButton px={3} py={2}>
-                                <Box flex="1" textAlign="left" fontSize="sm" color="gray.300">
-                                  Action Payload
-                                </Box>
-                                <AccordionIcon />
-                              </AccordionButton>
-                              <AccordionPanel pt={2}>
-                                <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">
-                                  {formatJson(event.action.payload)}
-                                </Code>
-                              </AccordionPanel>
-                            </AccordionItem>
-                          </Accordion>
-                        ) : null}
-                      </Box>
-                    ) : null}
-                    {event.network ? (
-                      <Accordion allowToggle mb={2}>
-                        <AccordionItem borderColor="gray.700" borderRadius="md">
-                          <AccordionButton px={3} py={2}>
-                            <Box flex="1" textAlign="left">
-                              <Text fontSize="sm" color="cyan.300" wordBreak="break-word" overflowWrap="anywhere">
-                                {event.network.method ?? 'REQ'} {event.network.url ?? '-'} {event.network.status ?? ''}
-                              </Text>
-                              <Text fontSize="xs" color="gray.400">{event.network.durationMs ?? '-'} ms</Text>
-                            </Box>
-                            <AccordionIcon />
-                          </AccordionButton>
-                          <AccordionPanel pt={2}>
-                            <Tabs size="sm" variant="enclosed" isLazy>
-                              <TabList overflowX="auto" whiteSpace="nowrap">
-                                <Tab>Summary</Tab>
-                                <Tab>Request</Tab>
-                                <Tab>Response</Tab>
-                                <Tab>Headers</Tab>
-                              </TabList>
-                              <TabPanels>
-                                <TabPanel px={1} py={3}>
-                                  <Code whiteSpace="pre-wrap" display="block" p={2}>
-                                    {formatJson({
-                                      method: event.network.method,
-                                      url: event.network.url,
-                                      status: event.network.status,
-                                      durationMs: event.network.durationMs,
-                                      error: event.network.error,
-                                    })}
-                                  </Code>
-                                </TabPanel>
-                                <TabPanel px={1} py={3}>
-                                  <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">
-                                    {formatJson(event.network.requestBody ?? 'No request body')}
-                                  </Code>
-                                </TabPanel>
-                                <TabPanel px={1} py={3}>
-                                  <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">
-                                    {formatJson(event.network.responseBody ?? 'No response body')}
-                                  </Code>
-                                </TabPanel>
-                                <TabPanel px={1} py={3}>
-                                  <Text fontSize="xs" color="gray.400" mb={1}>Request Headers</Text>
-                                  <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} mb={3} maxW="100%" overflowX="auto">
-                                    {formatJson(event.network.requestHeaders ?? 'No request headers')}
-                                  </Code>
-                                  <Text fontSize="xs" color="gray.400" mb={1}>Response Headers</Text>
-                                  <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">
-                                    {formatJson(event.network.responseHeaders ?? 'No response headers')}
-                                  </Code>
-                                </TabPanel>
-                              </TabPanels>
-                            </Tabs>
-                          </AccordionPanel>
-                        </AccordionItem>
-                      </Accordion>
-                    ) : null}
-                    {event.stack ? <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">{event.stack}</Code> : null}
-                  </Box>
-                    )
-                  })()
-                ))}
-              </VStack>
-              {hasMore ? (
-                <Button
-                  mt={4}
-                  w="100%"
-                  size="sm"
-                  variant="outline"
-                  isLoading={loadingMore}
-                  onClick={() => loadMore().catch(() => undefined)}
-                >
-                  Load more
-                </Button>
-              ) : null}
-            </Box>
-          </GridItem>
+            <Grid templateColumns={{ base: '1fr', lg: '3fr 2fr' }} gap={4} minW={0}>
+              <GridItem minW={0}>
+                <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900" maxH="65vh" overflowY="auto" overflowX="auto" minW={0}>
+                  <Heading size="sm" mb={3}>Curated Events ({filteredEvents.length}/{events.length})</Heading>
+                  <VStack align="stretch" spacing={3}>
+                    {filteredEvents.map((event, index) => (
+                      <EventCard key={`${event.ts}-${index}`} event={event} />
+                    ))}
+                  </VStack>
+                  {hasMore ? (
+                    <Button
+                      mt={4}
+                      w="100%"
+                      size="sm"
+                      variant="outline"
+                      isLoading={loadingMore}
+                      onClick={() => loadMore().catch(() => undefined)}
+                    >
+                      Load more
+                    </Button>
+                  ) : null}
+                </Box>
+              </GridItem>
 
-          <GridItem minW={0}>
-            <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900" maxH="65vh" overflowY="auto" overflowX="auto" minW={0}>
-              <Heading size="sm" mb={3}>State Snapshot</Heading>
-              <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={3} maxW="100%" overflowX="auto">{stateText}</Code>
-            </Box>
-          </GridItem>
-        </Grid>
+              <GridItem minW={0}>
+                <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900" maxH="65vh" overflowY="auto" overflowX="auto" minW={0}>
+                  <Heading size="sm" mb={3}>State Snapshot</Heading>
+                  <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={3} maxW="100%" overflowX="auto">{stateText}</Code>
+                </Box>
+              </GridItem>
+            </Grid>
+          </>
+        ) : viewState.view === 'list' ? (
+          <SessionTree
+            apiBase={apiBase}
+            onSelectSession={(sessionId) =>
+              setViewState({ tab: 'history', view: 'session', sessionId })
+            }
+          />
+        ) : (
+          <SessionDetail
+            apiBase={apiBase}
+            sessionId={viewState.sessionId}
+            onBack={() => setViewState({ tab: 'history', view: 'list' })}
+          />
+        )}
       </VStack>
     </Box>
   )

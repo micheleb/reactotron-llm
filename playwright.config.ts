@@ -44,5 +44,11 @@ export default defineConfig({
       use: { browserName: 'chromium' },
       dependencies: ['api', 'ws'],
     },
+    {
+      name: 'history',
+      testMatch: 'tests/history.spec.ts',
+      use: { browserName: 'chromium' },
+      dependencies: ['api', 'ws', 'export'],
+    },
   ],
 })
