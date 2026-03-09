@@ -8,12 +8,18 @@
     "dev": "bun run --watch src/index.ts",
     "dashboard:dev": "bun run --cwd dashboard dev",
     "dashboard:build": "bun run --cwd dashboard build",
-    "dashboard:preview": "bun run --cwd dashboard preview"
+    "dashboard:preview": "bun run --cwd dashboard preview",
+    "test": "bunx playwright test",
+    "test:api": "bunx playwright test --project=api",
+    "test:dashboard": "bunx playwright test --project=dashboard"
   },
   "engines": {
     "bun": ">=1.1.0"
   },
   "dependencies": {
     "hono": "^4.7.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
   }
 }
