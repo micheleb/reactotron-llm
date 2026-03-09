@@ -258,7 +258,7 @@ export default function SessionCompare({ apiBase, sessionA, sessionB, onBack }: 
                 </HStack>
                 {isExpanded ? (
                   <Grid templateColumns="1fr 1fr" gap={2} px={3} py={2}>
-                    <Box>
+                    <Box minW={0} overflow="hidden">
                       <Text fontSize="xs" color="cyan.400" mb={2}>Session A ({entry.a_count})</Text>
                       {entry.a_events.length === 0 ? (
                         <Text fontSize="xs" color="gray.500">No events</Text>
@@ -270,7 +270,7 @@ export default function SessionCompare({ apiBase, sessionA, sessionB, onBack }: 
                         </VStack>
                       )}
                     </Box>
-                    <Box>
+                    <Box minW={0} overflow="hidden">
                       <Text fontSize="xs" color="purple.400" mb={2}>Session B ({entry.b_count})</Text>
                       {entry.b_events.length === 0 ? (
                         <Text fontSize="xs" color="gray.500">No events</Text>
