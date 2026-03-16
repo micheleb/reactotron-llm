@@ -6,6 +6,7 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
+    "dev:all": "concurrently -n server,dashboard -c blue,magenta \"bun run dev\" \"bun run dashboard:dev\"",
     "dashboard:dev": "bun run --cwd dashboard dev",
     "dashboard:build": "bun run --cwd dashboard build",
     "dashboard:preview": "bun run --cwd dashboard preview",
@@ -21,6 +22,7 @@
     "hono": "^4.7.2"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2"
+    "@playwright/test": "^1.58.2",
+    "concurrently": "^9.2.1"
   }
 }
