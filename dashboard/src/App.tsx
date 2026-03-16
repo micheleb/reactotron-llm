@@ -247,7 +247,7 @@ export default function App() {
   }
 
   return (
-    <Box minH="100vh" maxW="100vw" overflowX="auto" bgGradient="linear(to-br, gray.950, black, gray.900)" p={6}>
+    <Box minH="100vh" maxW="100vw" overflowX="auto" bg="#151515" p={6}>
       <VStack align="stretch" spacing={4}>
         <Flex justify="space-between" align="end" wrap="wrap" gap={3}>
           <Box>
@@ -266,12 +266,13 @@ export default function App() {
                 <Button size="sm" variant="outline" colorScheme="red" onClick={() => resetEvents().catch(() => undefined)}>
                   Reset Logs
                 </Button>
-                <Button size="sm" colorScheme="blue" onClick={() => requestDumpState().catch(() => undefined)}>
+                <Button size="sm" colorScheme="reactotron" onClick={() => requestDumpState().catch(() => undefined)}>
                   Dump State
                 </Button>
                 <Button
                   size="sm"
-                  colorScheme="teal"
+                  colorScheme="reactotron"
+                  variant="outline"
                   isDisabled={events.length === 0}
                   onClick={() => {
                     const params = new URLSearchParams()
@@ -350,7 +351,7 @@ export default function App() {
               }
             }}
             variant="enclosed"
-            colorScheme="cyan"
+            colorScheme="reactotron"
           >
             <TabList>
               <Tab>Live</Tab>
@@ -417,7 +418,7 @@ export default function App() {
               <Button
                 size="sm"
                 variant={compareMode ? 'solid' : 'outline'}
-                colorScheme="cyan"
+                colorScheme="reactotron"
                 onClick={() => {
                   setCompareMode(!compareMode)
                   setSelectedForCompare(new Set())
@@ -426,7 +427,7 @@ export default function App() {
                 {compareMode ? 'Cancel Compare' : 'Compare Sessions'}
               </Button>
               {compareMode && selectedForCompare.size === 2 ? (
-                <Button size="sm" colorScheme="cyan" onClick={startCompare}>
+                <Button size="sm" colorScheme="reactotron" onClick={startCompare}>
                   Compare Selected ({selectedForCompare.size}/2)
                 </Button>
               ) : compareMode ? (
