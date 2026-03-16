@@ -117,7 +117,7 @@ export default function SessionCompare({ apiBase, sessionA, sessionB, onBack }: 
   if (loading) {
     return (
       <Box p={8} textAlign="center">
-        <Spinner size="lg" color="cyan.400" />
+        <Spinner size="lg" color="reactotron.400" />
         <Text mt={3} color="gray.400">Loading comparison...</Text>
       </Box>
     )
@@ -129,7 +129,7 @@ export default function SessionCompare({ apiBase, sessionA, sessionB, onBack }: 
         <Text color="red.400">{error ?? 'Unknown error'}</Text>
         <HStack>
           <Button size="sm" onClick={() => loadComparison().catch(() => undefined)}>Retry</Button>
-          <Button size="sm" variant="outline" color="gray.300" _hover={{ color: 'white', bg: 'gray.700' }} onClick={onBack}>Back</Button>
+          <Button size="sm" variant="subtle" onClick={onBack}>Back</Button>
         </HStack>
       </VStack>
     )
@@ -147,16 +147,16 @@ export default function SessionCompare({ apiBase, sessionA, sessionB, onBack }: 
   return (
     <VStack align="stretch" spacing={4}>
       <HStack>
-        <Button size="sm" variant="outline" color="gray.300" _hover={{ color: 'white', bg: 'gray.700' }} onClick={onBack}>Back</Button>
+        <Button size="sm" variant="subtle" onClick={onBack}>Back</Button>
         <Heading size="md" color="gray.100">Session Comparison</Heading>
       </HStack>
 
       {/* Session headers side by side */}
       <Grid templateColumns="1fr 1fr" gap={4}>
         {[a, b].map((session, idx) => (
-          <Box key={session.id} p={4} borderWidth="1px" borderColor={idx === 0 ? 'cyan.700' : 'purple.700'} borderRadius="lg" bg="gray.900">
+          <Box key={session.id} p={4} borderWidth="1px" borderColor={idx === 0 ? 'reactotron.700' : 'twilightPurple.700'} borderRadius="lg" bg="gray.900">
             <HStack spacing={2} mb={2}>
-              <Badge colorScheme={idx === 0 ? 'cyan' : 'purple'} fontSize="xs">Session {idx === 0 ? 'A' : 'B'}</Badge>
+              <Badge colorScheme={idx === 0 ? 'reactotron' : 'twilightPurple'} fontSize="xs">Session {idx === 0 ? 'A' : 'B'}</Badge>
               <Text fontWeight="600" color="gray.100">{session.app_name ?? 'Unknown'}</Text>
               {session.platform ? <Badge colorScheme="gray" fontSize="xs">{session.platform}</Badge> : null}
             </HStack>
@@ -175,52 +175,52 @@ export default function SessionCompare({ apiBase, sessionA, sessionB, onBack }: 
           <Box>
             <Text fontSize="xs" color="gray.500">Total Events</Text>
             <HStack spacing={2}>
-              <Text fontSize="sm" color="cyan.300">{a.stats.total_events}</Text>
+              <Text fontSize="sm" color="reactotron.300">{a.stats.total_events}</Text>
               <Text fontSize="sm" color="gray.500">vs</Text>
-              <Text fontSize="sm" color="purple.300">{b.stats.total_events}</Text>
+              <Text fontSize="sm" color="twilightPurple.300">{b.stats.total_events}</Text>
             </HStack>
           </Box>
           <Box>
             <Text fontSize="xs" color="gray.500">Errors</Text>
             <HStack spacing={2}>
-              <Text fontSize="sm" color="cyan.300">{a.stats.error_count}</Text>
+              <Text fontSize="sm" color="reactotron.300">{a.stats.error_count}</Text>
               <Text fontSize="sm" color="gray.500">vs</Text>
-              <Text fontSize="sm" color="purple.300">{b.stats.error_count}</Text>
+              <Text fontSize="sm" color="twilightPurple.300">{b.stats.error_count}</Text>
             </HStack>
             <DeltaBadge a={a.stats.error_count} b={b.stats.error_count} label="B" />
           </Box>
           <Box>
             <Text fontSize="xs" color="gray.500">Warnings</Text>
             <HStack spacing={2}>
-              <Text fontSize="sm" color="cyan.300">{a.stats.warning_count}</Text>
+              <Text fontSize="sm" color="reactotron.300">{a.stats.warning_count}</Text>
               <Text fontSize="sm" color="gray.500">vs</Text>
-              <Text fontSize="sm" color="purple.300">{b.stats.warning_count}</Text>
+              <Text fontSize="sm" color="twilightPurple.300">{b.stats.warning_count}</Text>
             </HStack>
           </Box>
           <Box>
             <Text fontSize="xs" color="gray.500">Failed Network</Text>
             <HStack spacing={2}>
-              <Text fontSize="sm" color="cyan.300">{a.stats.failed_network_count}</Text>
+              <Text fontSize="sm" color="reactotron.300">{a.stats.failed_network_count}</Text>
               <Text fontSize="sm" color="gray.500">vs</Text>
-              <Text fontSize="sm" color="purple.300">{b.stats.failed_network_count}</Text>
+              <Text fontSize="sm" color="twilightPurple.300">{b.stats.failed_network_count}</Text>
             </HStack>
             <DeltaBadge a={a.stats.failed_network_count} b={b.stats.failed_network_count} label="B" />
           </Box>
           <Box>
             <Text fontSize="xs" color="gray.500">Network Reqs</Text>
             <HStack spacing={2}>
-              <Text fontSize="sm" color="cyan.300">{a.stats.network_count}</Text>
+              <Text fontSize="sm" color="reactotron.300">{a.stats.network_count}</Text>
               <Text fontSize="sm" color="gray.500">vs</Text>
-              <Text fontSize="sm" color="purple.300">{b.stats.network_count}</Text>
+              <Text fontSize="sm" color="twilightPurple.300">{b.stats.network_count}</Text>
             </HStack>
           </Box>
           {(a.stats.latency || b.stats.latency) ? (
             <Box>
               <Text fontSize="xs" color="gray.500">p50 Latency</Text>
               <HStack spacing={2}>
-                <Text fontSize="sm" color="cyan.300">{a.stats.latency ? formatMs(a.stats.latency.p50) : '—'}</Text>
+                <Text fontSize="sm" color="reactotron.300">{a.stats.latency ? formatMs(a.stats.latency.p50) : '—'}</Text>
                 <Text fontSize="sm" color="gray.500">vs</Text>
-                <Text fontSize="sm" color="purple.300">{b.stats.latency ? formatMs(b.stats.latency.p50) : '—'}</Text>
+                <Text fontSize="sm" color="twilightPurple.300">{b.stats.latency ? formatMs(b.stats.latency.p50) : '—'}</Text>
               </HStack>
             </Box>
           ) : null}
@@ -247,9 +247,9 @@ export default function SessionCompare({ apiBase, sessionA, sessionB, onBack }: 
                   <Text fontSize="sm" color="gray.400">{isExpanded ? '\u25BC' : '\u25B6'}</Text>
                   <Text fontSize="sm" fontWeight="500" color="gray.200" fontFamily="mono">{type}</Text>
                   <Box flex={1} />
-                  <Badge colorScheme="cyan" variant="subtle" fontSize="xs">{entry.a_count}</Badge>
+                  <Badge colorScheme="reactotron" variant="subtle" fontSize="xs">{entry.a_count}</Badge>
                   <Text fontSize="xs" color="gray.500">vs</Text>
-                  <Badge colorScheme="purple" variant="subtle" fontSize="xs">{entry.b_count}</Badge>
+                  <Badge colorScheme="twilightPurple" variant="subtle" fontSize="xs">{entry.b_count}</Badge>
                   {entry.a_count !== entry.b_count ? (
                     <Text fontSize="xs" color={entry.b_count > entry.a_count ? 'orange.300' : 'green.300'}>
                       {entry.b_count > entry.a_count ? '+' : ''}{entry.b_count - entry.a_count}
@@ -259,7 +259,7 @@ export default function SessionCompare({ apiBase, sessionA, sessionB, onBack }: 
                 {isExpanded ? (
                   <Grid templateColumns="1fr 1fr" gap={2} px={3} py={2}>
                     <Box minW={0} overflow="hidden">
-                      <Text fontSize="xs" color="cyan.400" mb={2}>Session A ({entry.a_count})</Text>
+                      <Text fontSize="xs" color="reactotron.400" mb={2}>Session A ({entry.a_count})</Text>
                       {entry.a_events.length === 0 ? (
                         <Text fontSize="xs" color="gray.500">No events</Text>
                       ) : (
@@ -271,7 +271,7 @@ export default function SessionCompare({ apiBase, sessionA, sessionB, onBack }: 
                       )}
                     </Box>
                     <Box minW={0} overflow="hidden">
-                      <Text fontSize="xs" color="purple.400" mb={2}>Session B ({entry.b_count})</Text>
+                      <Text fontSize="xs" color="twilightPurple.400" mb={2}>Session B ({entry.b_count})</Text>
                       {entry.b_events.length === 0 ? (
                         <Text fontSize="xs" color="gray.500">No events</Text>
                       ) : (

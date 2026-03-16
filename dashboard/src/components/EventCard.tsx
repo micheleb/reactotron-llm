@@ -88,7 +88,7 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
       borderRadius="md"
       bg="gray.950"
       borderLeftWidth="4px"
-      borderLeftColor={event.level === 'error' ? 'red.400' : event.network ? 'cyan.400' : 'blue.400'}
+      borderLeftColor={event.level === 'error' ? 'red.400' : event.network ? 'reactotron.400' : 'twilight.blue'}
       minW={0}
     >
       <HStack justify="space-between" mb={2} align="center" minW={0}>
@@ -105,7 +105,7 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
           px={2}
           py={1}
           borderRadius="md"
-          bg="cyan.700"
+          bg="reactotron.700"
           color="white"
           fontFamily="mono"
           fontWeight="700"
@@ -118,7 +118,7 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
       {event.message ? <Text mb={2}>{event.message}</Text> : null}
       {event.action ? (
         <Box mb={2}>
-          <Text fontSize="sm" color="orange.300">
+          <Text fontSize="sm" color="twilight.amber">
             Action {event.action.name ?? event.action.type ?? 'unknown'}
           </Text>
           {hasActionPayload ? (
@@ -145,7 +145,7 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
           <AccordionItem borderColor="gray.700" borderRadius="md">
             <AccordionButton px={3} py={2}>
               <Box flex="1" textAlign="left">
-                <Text fontSize="sm" color="cyan.300" wordBreak="break-word" overflowWrap="anywhere">
+                <Text fontSize="sm" color="twilight.steel" wordBreak="break-word" overflowWrap="anywhere">
                   {event.network.method ?? 'REQ'} {event.network.url ?? '-'} {event.network.status ?? ''}
                 </Text>
                 <Text fontSize="xs" color="gray.400">{event.network.durationMs ?? '-'} ms</Text>

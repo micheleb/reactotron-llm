@@ -201,7 +201,7 @@ export default function SessionTree({
   if (loading) {
     return (
       <Box p={8} textAlign="center">
-        <Spinner size="lg" color="cyan.400" />
+        <Spinner size="lg" color="reactotron.400" />
         <Text mt={3} color="gray.400">Loading sessions...</Text>
       </Box>
     )
@@ -239,7 +239,7 @@ export default function SessionTree({
               onChange={() => setBookmarkedOnly(!bookmarkedOnly)}
             />
           </HStack>
-          <Button size="xs" variant="outline" color="gray.300" _hover={{ color: 'white', bg: 'gray.700' }} onClick={() => loadSessions().catch(() => undefined)}>
+          <Button size="xs" variant="subtle" onClick={() => loadSessions().catch(() => undefined)}>
             Refresh
           </Button>
         </HStack>
@@ -301,9 +301,9 @@ export default function SessionTree({
                                     cursor="pointer"
                                     borderRadius="md"
                                     borderWidth="1px"
-                                    borderColor={isSelected ? 'cyan.500' : 'gray.700'}
+                                    borderColor={isSelected ? 'reactotron.500' : 'gray.700'}
                                     bg={isSelected ? 'gray.800' : 'gray.950'}
-                                    _hover={{ bg: 'gray.800', borderColor: 'cyan.600' }}
+                                    _hover={{ bg: 'gray.800', borderColor: 'reactotron.600' }}
                                     onClick={() => {
                                       if (compareMode && onToggleCompareSelect) {
                                         onToggleCompareSelect(session.id)
@@ -315,7 +315,7 @@ export default function SessionTree({
                                     {compareMode ? (
                                       <Checkbox
                                         isChecked={isSelected}
-                                        colorScheme="cyan"
+                                        colorScheme="reactotron"
                                         size="sm"
                                         onChange={() => onToggleCompareSelect?.(session.id)}
                                         onClick={(e) => e.stopPropagation()}

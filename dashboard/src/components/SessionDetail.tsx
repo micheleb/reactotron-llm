@@ -153,7 +153,7 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
   if (loading) {
     return (
       <Box p={8} textAlign="center">
-        <Spinner size="lg" color="cyan.400" />
+        <Spinner size="lg" color="reactotron.400" />
         <Text mt={3} color="gray.400">Loading session events...</Text>
       </Box>
     )
@@ -165,7 +165,7 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
         <Text color="red.400">{error}</Text>
         <HStack>
           <Button size="sm" onClick={() => loadSession().catch(() => undefined)}>Retry</Button>
-          <Button size="sm" variant="outline" color="gray.300" _hover={{ color: 'white', bg: 'gray.700' }} onClick={onBack}>Back to sessions</Button>
+          <Button size="sm" variant="subtle" onClick={onBack}>Back to sessions</Button>
         </HStack>
       </VStack>
     )
@@ -178,7 +178,7 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
       <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
         <HStack justify="space-between" align="start" wrap="wrap" gap={3}>
           <HStack spacing={3} align="center">
-            <Button size="sm" variant="outline" color="gray.300" _hover={{ color: 'white', bg: 'gray.700' }} onClick={onBack}>
+            <Button size="sm" variant="subtle" onClick={onBack}>
               Back
             </Button>
             <Box>
@@ -187,7 +187,7 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
                   {meta?.app_name ?? 'Unknown App'}
                 </Heading>
                 {meta?.platform ? (
-                  <Badge colorScheme="purple" fontSize="sm">{meta.platform}</Badge>
+                  <Badge colorScheme="twilightPurple" fontSize="sm">{meta.platform}</Badge>
                 ) : null}
                 {meta && !meta.disconnected_at ? (
                   <Badge colorScheme="green" fontSize="sm">Active</Badge>
@@ -212,7 +212,7 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
           </HStack>
           <HStack spacing={2}>
             {onCompareWith ? (
-              <Button size="sm" variant="outline" colorScheme="cyan" onClick={onCompareWith}>
+              <Button size="sm" variant="outline" colorScheme="reactotron" onClick={onCompareWith}>
                 Compare with...
               </Button>
             ) : null}
@@ -281,8 +281,8 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
             <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900" gridColumn={{ md: stats.slowest_request || stats.longest_benchmark ? 'span 1' : 'span 2' }}>
               <Text fontSize="xs" color="gray.500" mb={1}>Latency Percentiles</Text>
               <HStack spacing={3} wrap="wrap">
-                <Text fontSize="xs" color="gray.300">p50: <Text as="span" color="cyan.300">{formatMs(stats.latency.p50)}</Text></Text>
-                <Text fontSize="xs" color="gray.300">p90: <Text as="span" color="cyan.300">{formatMs(stats.latency.p90)}</Text></Text>
+                <Text fontSize="xs" color="gray.300">p50: <Text as="span" color="reactotron.300">{formatMs(stats.latency.p50)}</Text></Text>
+                <Text fontSize="xs" color="gray.300">p90: <Text as="span" color="reactotron.300">{formatMs(stats.latency.p90)}</Text></Text>
                 <Text fontSize="xs" color="gray.300">p95: <Text as="span" color="yellow.300">{formatMs(stats.latency.p95)}</Text></Text>
                 <Text fontSize="xs" color="gray.300">p99: <Text as="span" color="orange.300">{formatMs(stats.latency.p99)}</Text></Text>
               </HStack>
