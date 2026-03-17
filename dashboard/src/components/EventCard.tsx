@@ -15,60 +15,15 @@ import {
   Text,
 } from '@chakra-ui/react'
 
+import { useCallback } from 'react'
+
 import type { CuratedEvent } from '@shared/types'
-
-function normalizePlaceholders(value: unknown): unknown {
-  if (typeof value === 'string') {
-    switch (value.trim()) {
-      case '~~~ false ~~~':
-        return false
-      case '~~~ true ~~~':
-        return true
-      case '~~~ null ~~~':
-        return null
-      case '~~~ zero ~~~':
-        return 0
-      case '~~~ empty string ~~~':
-        return ''
-      case '~~~ undefined ~~~':
-        return null
-      default:
-        return value
-    }
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizePlaceholders(item))
-  }
-
-  if (value && typeof value === 'object') {
-    const obj = value as Record<string, unknown>
-    const normalized: Record<string, unknown> = {}
-    for (const [key, item] of Object.entries(obj)) {
-      normalized[key] = normalizePlaceholders(item)
-    }
-    return normalized
-  }
-
-  return value
-}
-
-function formatJson(value: unknown): string {
-  return JSON.stringify(normalizePlaceholders(value), null, 2)
-}
-
-function formatTime(ts: string): string {
-  const date = new Date(ts)
-  if (Number.isNaN(date.getTime())) return ts
-
-  const hh = String(date.getHours()).padStart(2, '0')
-  const mm = String(date.getMinutes()).padStart(2, '0')
-  const ss = String(date.getSeconds()).padStart(2, '0')
-  const ms = String(date.getMilliseconds()).padStart(3, '0')
-  return `${hh}:${mm}:${ss}.${ms}`
-}
+import { formatEventMarkdown } from '../utils/markdown'
+import { formatJson, formatTime } from '../utils/normalize'
+import CopyButton from './CopyButton'
 
 export default function EventCard({ event }: { event: CuratedEvent }) {
+  const getMarkdown = useCallback(() => formatEventMarkdown(event, 'full'), [event])
   const actionDisplay = event.action?.displayName
   const actionLabel = event.action?.name ?? event.action?.type
   const showActionAsPrimary =
@@ -90,6 +45,7 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
       borderLeftWidth="4px"
       borderLeftColor={event.level === 'error' ? 'red.400' : event.network ? 'reactotron.400' : 'twilight.blue'}
       minW={0}
+      data-testid="event-card"
     >
       <HStack justify="space-between" mb={2} align="center" minW={0}>
         <HStack spacing={2} minW={0}>
@@ -99,21 +55,24 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
             <Text fontSize="xs" color="gray.400">({event.type})</Text>
           ) : null}
         </HStack>
-        <Box
-          as="span"
-          fontSize="sm"
-          px={2}
-          py={1}
-          borderRadius="md"
-          bg="reactotron.700"
-          color="white"
-          fontFamily="mono"
-          fontWeight="700"
-          lineHeight="1"
-          title={event.ts}
-        >
-          {formatTime(event.ts)}
-        </Box>
+        <HStack spacing={1}>
+          <CopyButton getText={getMarkdown} />
+          <Box
+            as="span"
+            fontSize="sm"
+            px={2}
+            py={1}
+            borderRadius="md"
+            bg="reactotron.700"
+            color="white"
+            fontFamily="mono"
+            fontWeight="700"
+            lineHeight="1"
+            title={event.ts}
+          >
+            {formatTime(event.ts)}
+          </Box>
+        </HStack>
       </HStack>
       {event.message ? <Text mb={2}>{event.message}</Text> : null}
       {event.action ? (

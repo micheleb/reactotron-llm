@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Badge,
   Box,
@@ -12,6 +12,8 @@ import {
   StatLabel,
   StatNumber,
   Text,
+  useDisclosure,
+  useToast,
   VStack,
 } from '@chakra-ui/react'
 import { StarIcon } from '@chakra-ui/icons'
@@ -19,8 +21,12 @@ import { Virtuoso } from 'react-virtuoso'
 
 import type { CuratedEvent } from '@shared/types'
 import type { SessionStats } from '@shared/types'
+import type { SessionMetadata } from '../utils/markdown'
+import { formatEventsMarkdown } from '../utils/markdown'
+import ClipboardFallbackModal from './ClipboardFallbackModal'
 import EventCard from './EventCard'
 import FilterBar from './FilterBar'
+import TextModeView from './TextModeView'
 import { useEventFilter } from '../hooks/useEventFilter'
 
 type SessionEventsResponse = {
@@ -96,6 +102,39 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
     toggleSortOrder,
     resetFilters,
   } = useEventFilter(events)
+  const [textMode, setTextMode] = useState(false)
+  const toast = useToast()
+  const { isOpen: isFallbackOpen, onOpen: onFallbackOpen, onClose: onFallbackClose } = useDisclosure()
+  const [fallbackContent, setFallbackContent] = useState('')
+
+  const handleTextModeToggle = useCallback(() => {
+    setTextMode((prev) => !prev)
+  }, [])
+
+  const handleCopyAll = useCallback(async () => {
+    const timeRange = filteredEvents.length > 0
+      ? { start: filteredEvents[filteredEvents.length - 1].ts, end: filteredEvents[0].ts }
+      : undefined
+    const metadata: SessionMetadata = {
+      appName: meta?.app_name ?? undefined,
+      platform: meta?.platform ?? undefined,
+      timeRange,
+      eventCount: filteredEvents.length,
+    }
+    const md = formatEventsMarkdown(filteredEvents, metadata)
+    try {
+      await navigator.clipboard.writeText(md)
+      toast({
+        title: `Copied ${filteredEvents.length} events to clipboard`,
+        status: 'success',
+        duration: 2000,
+        isClosable: true,
+      })
+    } catch {
+      setFallbackContent(md)
+      onFallbackOpen()
+    }
+  }, [filteredEvents, meta, toast, onFallbackOpen])
 
   async function loadSession() {
     setLoading(true)
@@ -299,6 +338,10 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
         onErrorsOnlyChange={setErrorsOnly}
         onSortOrderToggle={toggleSortOrder}
         onReset={resetFilters}
+        textMode={textMode}
+        onTextModeToggle={handleTextModeToggle}
+        onCopyAll={handleCopyAll}
+        eventCount={filteredEvents.length}
       />
 
       {filteredEvents.length === 0 ? (
@@ -317,18 +360,23 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
             </Heading>
           </Box>
           <Box px={4} pb={4}>
-            <Virtuoso
-              data={filteredEvents}
-              style={{ height: '60vh' }}
-              itemContent={(_index, event) => (
-                <Box pb={3}>
-                  <EventCard event={event} />
-                </Box>
-              )}
-            />
+            {textMode ? (
+              <TextModeView events={filteredEvents} />
+            ) : (
+              <Virtuoso
+                data={filteredEvents}
+                style={{ height: '60vh' }}
+                itemContent={(_index, event) => (
+                  <Box pb={3}>
+                    <EventCard event={event} />
+                  </Box>
+                )}
+              />
+            )}
           </Box>
         </Box>
       )}
+      <ClipboardFallbackModal isOpen={isFallbackOpen} onClose={onFallbackClose} content={fallbackContent} />
     </VStack>
   )
 }
