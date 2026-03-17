@@ -15,10 +15,15 @@ import {
   Text,
 } from '@chakra-ui/react'
 
+import { useCallback } from 'react'
+
 import type { CuratedEvent } from '@shared/types'
+import { formatEventMarkdown } from '../utils/markdown'
 import { formatJson, formatTime } from '../utils/normalize'
+import CopyButton from './CopyButton'
 
 export default function EventCard({ event }: { event: CuratedEvent }) {
+  const getMarkdown = useCallback(() => formatEventMarkdown(event, 'full'), [event])
   const actionDisplay = event.action?.displayName
   const actionLabel = event.action?.name ?? event.action?.type
   const showActionAsPrimary =
@@ -49,21 +54,24 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
             <Text fontSize="xs" color="gray.400">({event.type})</Text>
           ) : null}
         </HStack>
-        <Box
-          as="span"
-          fontSize="sm"
-          px={2}
-          py={1}
-          borderRadius="md"
-          bg="reactotron.700"
-          color="white"
-          fontFamily="mono"
-          fontWeight="700"
-          lineHeight="1"
-          title={event.ts}
-        >
-          {formatTime(event.ts)}
-        </Box>
+        <HStack spacing={1}>
+          <CopyButton getText={getMarkdown} />
+          <Box
+            as="span"
+            fontSize="sm"
+            px={2}
+            py={1}
+            borderRadius="md"
+            bg="reactotron.700"
+            color="white"
+            fontFamily="mono"
+            fontWeight="700"
+            lineHeight="1"
+            title={event.ts}
+          >
+            {formatTime(event.ts)}
+          </Box>
+        </HStack>
       </HStack>
       {event.message ? <Text mb={2}>{event.message}</Text> : null}
       {event.action ? (
