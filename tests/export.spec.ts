@@ -262,6 +262,35 @@ test.describe('Export button in dashboard', () => {
     await expect(trigger).toHaveText('All')
   })
 
+  test('Sort toggle reverses event order', async ({ page, request }) => {
+    await request.post(`${API_BASE}/api/events/reset`)
+    await seedEvents(page, [
+      { type: 'log', payload: { level: 'info', message: 'event-AAA' } },
+      { type: 'log', payload: { level: 'info', message: 'event-BBB' } },
+      { type: 'log', payload: { level: 'info', message: 'event-CCC' } },
+    ])
+    await openDashboard(page)
+
+    // Wait for events to render
+    await expect(page.getByText('event-CCC')).toBeVisible()
+    await expect(page.getByText('event-AAA')).toBeVisible()
+
+    // Record position of AAA relative to CCC before toggling
+    const aaaBefore = await page.getByText('event-AAA').boundingBox()
+    const cccBefore = await page.getByText('event-CCC').boundingBox()
+    const aaaAboveCccBefore = aaaBefore!.y < cccBefore!.y
+
+    // Click the sort toggle
+    await page.getByTestId('sort-order-toggle').click()
+
+    // Positions should be reversed after toggling
+    const aaaAfter = await page.getByText('event-AAA').boundingBox()
+    const cccAfter = await page.getByText('event-CCC').boundingBox()
+    const aaaAboveCccAfter = aaaAfter!.y < cccAfter!.y
+
+    expect(aaaAboveCccAfter).not.toBe(aaaAboveCccBefore)
+  })
+
   test('Errors only checkbox sets level=error in export URL', async ({ page, request }) => {
     await request.post(`${API_BASE}/api/events/reset`)
     await seedEvents(page, [

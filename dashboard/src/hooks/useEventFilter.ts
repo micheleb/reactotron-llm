@@ -43,8 +43,11 @@ export function useEventFilter(events: CuratedEvent[]): EventFilterState {
       }
       return true
     })
-    const direction = sortOrder === 'newest' ? -1 : 1
-    return filtered.sort((a, b) => direction * (new Date(a.ts).getTime() - new Date(b.ts).getTime()))
+    // Sort newest-first by timestamp, then reverse for oldest-first.
+    // Using reverse() instead of flipping the comparator ensures events with
+    // equal timestamps (common in rapid bursts) still visibly reorder on toggle.
+    const sorted = [...filtered].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+    return sortOrder === 'oldest' ? sorted.reverse() : sorted
   }, [errorsOnly, events, levelFilter, sortOrder, typeFilter, urlFilter])
 
   function toggleSortOrder() {
