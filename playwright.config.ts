@@ -13,7 +13,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `PORT=${API_PORT} DASHBOARD_WS_PORT=${DASHBOARD_WS_PORT} bun run src/index.ts`,
+      command: `PORT=${API_PORT} DASHBOARD_WS_PORT=${DASHBOARD_WS_PORT} OUTPUT_DIR=.reactotron-llm-test bun run src/index.ts`,
       port: API_PORT,
       reuseExistingServer: !process.env.CI,
     },

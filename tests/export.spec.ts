@@ -173,10 +173,14 @@ test.describe('Export button in dashboard', () => {
     ])
     await openDashboard(page)
 
-    // Wait for the type dropdown to have options beyond "All"
-    const typeSelect = page.locator('select').first()
-    await expect(typeSelect.locator('option')).not.toHaveCount(1)
-    await typeSelect.selectOption('log')
+    // Open the type filter popover and select 'log'
+    const trigger = page.getByTestId('type-filter-trigger')
+    await trigger.click()
+    const popover = page.locator('.chakra-popover__content')
+    await popover.waitFor({ state: 'visible' })
+    await popover.getByText('log', { exact: true }).click()
+    // Close the popover by clicking the trigger again
+    await trigger.click()
 
     // Intercept window.open to capture the URL
     await page.evaluate(() => {
@@ -192,6 +196,99 @@ test.describe('Export button in dashboard', () => {
 
     expect(url).toContain('/api/export')
     expect(url).toContain('type=log')
+  })
+
+  test('Export passes multiple types as comma-separated', async ({ page, request }) => {
+    await request.post(`${API_BASE}/api/events/reset`)
+    await seedEvents(page, [
+      { type: 'log', payload: { level: 'info', message: 'multi type test' } },
+      { type: 'api.response', payload: { status: 200, url: '/x', method: 'GET', duration: 10 } },
+      { type: 'state.action.complete', payload: { name: 'setUser' } },
+    ])
+    await openDashboard(page)
+
+    // Open the type filter popover and select multiple types
+    const trigger = page.getByTestId('type-filter-trigger')
+    await trigger.click()
+    const popover = page.locator('.chakra-popover__content')
+    await popover.waitFor({ state: 'visible' })
+    await popover.getByText('log', { exact: true }).click()
+    await popover.getByText('api.response', { exact: true }).click()
+    // Close the popover
+    await trigger.click()
+
+    // Intercept window.open to capture the URL
+    await page.evaluate(() => {
+      ;(window as any).__capturedExportUrl = ''
+      window.open = ((url?: string | URL) => {
+        ;(window as any).__capturedExportUrl = String(url ?? '')
+        return null
+      }) as typeof window.open
+    })
+
+    await page.getByRole('button', { name: /Export/i }).click()
+    const url = await page.evaluate(() => (window as any).__capturedExportUrl)
+
+    expect(url).toContain('/api/export')
+    // Should contain both types comma-separated
+    expect(url).toMatch(/type=.*log/)
+    expect(url).toMatch(/type=.*api\.response/)
+  })
+
+  test('Reset clears type filter back to All', async ({ page, request }) => {
+    await request.post(`${API_BASE}/api/events/reset`)
+    await seedEvents(page, [
+      { type: 'log', payload: { level: 'info', message: 'reset test' } },
+      { type: 'api.response', payload: { status: 200, url: '/x', method: 'GET', duration: 10 } },
+    ])
+    await openDashboard(page)
+
+    // Select a type filter
+    const trigger = page.getByTestId('type-filter-trigger')
+    await trigger.click()
+    const popover = page.locator('.chakra-popover__content')
+    await popover.waitFor({ state: 'visible' })
+    await popover.getByText('log', { exact: true }).click()
+    // Close the popover
+    await trigger.click()
+
+    // Verify the trigger shows the selected type
+    await expect(trigger).toHaveText('log')
+
+    // Click the filter Reset button (not "Reset Logs")
+    await page.getByRole('button', { name: 'Reset', exact: true }).click()
+
+    // Verify the trigger shows "All" again
+    await expect(trigger).toHaveText('All')
+  })
+
+  test('Sort toggle reverses event order', async ({ page, request }) => {
+    await request.post(`${API_BASE}/api/events/reset`)
+    await seedEvents(page, [
+      { type: 'log', payload: { level: 'info', message: 'event-AAA' } },
+      { type: 'log', payload: { level: 'info', message: 'event-BBB' } },
+      { type: 'log', payload: { level: 'info', message: 'event-CCC' } },
+    ])
+    await openDashboard(page)
+
+    // Wait for events to render
+    await expect(page.getByText('event-CCC')).toBeVisible()
+    await expect(page.getByText('event-AAA')).toBeVisible()
+
+    // Record position of AAA relative to CCC before toggling
+    const aaaBefore = await page.getByText('event-AAA').boundingBox()
+    const cccBefore = await page.getByText('event-CCC').boundingBox()
+    const aaaAboveCccBefore = aaaBefore!.y < cccBefore!.y
+
+    // Click the sort toggle
+    await page.getByTestId('sort-order-toggle').click()
+
+    // Positions should be reversed after toggling
+    const aaaAfter = await page.getByText('event-AAA').boundingBox()
+    const cccAfter = await page.getByText('event-CCC').boundingBox()
+    const aaaAboveCccAfter = aaaAfter!.y < cccAfter!.y
+
+    expect(aaaAboveCccAfter).not.toBe(aaaAboveCccBefore)
   })
 
   test('Errors only checkbox sets level=error in export URL', async ({ page, request }) => {

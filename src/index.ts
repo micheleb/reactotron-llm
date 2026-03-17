@@ -40,7 +40,7 @@ import type { SessionFullRow, SessionListRow } from './db'
 
 const PORT = Number(Bun.env.PORT ?? 9090)
 const DASHBOARD_WS_PORT = Number(Bun.env.DASHBOARD_WS_PORT ?? 9092)
-const OUTPUT_DIR = path.resolve(process.cwd(), '.reactotron-llm')
+const OUTPUT_DIR = path.resolve(process.cwd(), Bun.env.OUTPUT_DIR ?? '.reactotron-llm')
 const DB_PATH = path.join(OUTPUT_DIR, 'reactotron.db')
 const STATE_PATH = path.join(OUTPUT_DIR, 'state.json')
 
