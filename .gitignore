@@ -3,6 +3,8 @@ dashboard/node_modules
 dashboard/dist
 .reactotron-llm
 .reactotron-llm/
+.reactotron-llm-test
+.reactotron-llm-test/
 .env
 .env.*
 !.env.example
