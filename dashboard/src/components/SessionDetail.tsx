@@ -86,12 +86,14 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
     levelFilter,
     urlFilter,
     errorsOnly,
+    sortOrder,
     eventTypes,
     filteredEvents,
     setTypeFilter,
     setLevelFilter,
     setUrlFilter,
     setErrorsOnly,
+    toggleSortOrder,
     resetFilters,
   } = useEventFilter(events)
 
@@ -289,11 +291,13 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
         levelFilter={levelFilter}
         urlFilter={urlFilter}
         errorsOnly={errorsOnly}
+        sortOrder={sortOrder}
         eventTypes={eventTypes}
         onTypeFilterChange={setTypeFilter}
         onLevelFilterChange={setLevelFilter}
         onUrlFilterChange={setUrlFilter}
         onErrorsOnlyChange={setErrorsOnly}
+        onSortOrderToggle={toggleSortOrder}
         onReset={resetFilters}
       />
 

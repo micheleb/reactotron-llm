@@ -115,12 +115,14 @@ export default function App() {
     levelFilter,
     urlFilter,
     errorsOnly,
+    sortOrder,
     eventTypes,
     filteredEvents,
     setTypeFilter,
     setLevelFilter,
     setUrlFilter,
     setErrorsOnly,
+    toggleSortOrder,
     resetFilters,
   } = useEventFilter(events)
 
@@ -362,11 +364,13 @@ export default function App() {
               levelFilter={levelFilter}
               urlFilter={urlFilter}
               errorsOnly={errorsOnly}
+              sortOrder={sortOrder}
               eventTypes={eventTypes}
               onTypeFilterChange={setTypeFilter}
               onLevelFilterChange={setLevelFilter}
               onUrlFilterChange={setUrlFilter}
               onErrorsOnlyChange={setErrorsOnly}
+              onSortOrderToggle={toggleSortOrder}
               onReset={resetFilters}
             />
 

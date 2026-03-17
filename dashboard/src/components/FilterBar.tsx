@@ -6,6 +6,7 @@ import {
   CheckboxGroup,
   HStack,
   Heading,
+  IconButton,
   Input,
   Popover,
   PopoverBody,
@@ -13,21 +14,25 @@ import {
   PopoverTrigger,
   Select,
   Text,
+  Tooltip,
   VStack,
   useDisclosure,
 } from '@chakra-ui/react'
-import { ChevronDownIcon } from '@chakra-ui/icons'
+import { ChevronDownIcon, TriangleDownIcon, TriangleUpIcon } from '@chakra-ui/icons'
+import type { SortOrder } from '../hooks/useEventFilter'
 
 type FilterBarProps = {
   typeFilter: Set<string>
   levelFilter: string
   urlFilter: string
   errorsOnly: boolean
+  sortOrder: SortOrder
   eventTypes: string[]
   onTypeFilterChange: (value: Set<string>) => void
   onLevelFilterChange: (value: string) => void
   onUrlFilterChange: (value: string) => void
   onErrorsOnlyChange: (value: boolean) => void
+  onSortOrderToggle: () => void
   onReset: () => void
 }
 
@@ -42,11 +47,13 @@ export default function FilterBar({
   levelFilter,
   urlFilter,
   errorsOnly,
+  sortOrder,
   eventTypes,
   onTypeFilterChange,
   onLevelFilterChange,
   onUrlFilterChange,
   onErrorsOnlyChange,
+  onSortOrderToggle,
   onReset,
 }: FilterBarProps) {
   const { isOpen, onToggle, onClose } = useDisclosure()
@@ -162,6 +169,16 @@ export default function FilterBar({
         <Checkbox isChecked={errorsOnly} onChange={(e) => onErrorsOnlyChange(e.target.checked)} pb={1}>
           Errors only
         </Checkbox>
+        <Tooltip label={sortOrder === 'newest' ? 'Showing newest first' : 'Showing oldest first'} placement="top">
+          <IconButton
+            aria-label={`Sort ${sortOrder === 'newest' ? 'oldest' : 'newest'} first`}
+            icon={sortOrder === 'newest' ? <TriangleDownIcon /> : <TriangleUpIcon />}
+            size="sm"
+            variant="subtle"
+            onClick={onSortOrderToggle}
+            data-testid="sort-order-toggle"
+          />
+        </Tooltip>
         <Button size="sm" variant="subtle" onClick={onReset}>
           Reset
         </Button>
