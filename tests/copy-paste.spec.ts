@@ -59,8 +59,24 @@ test.describe('Per-event copy button', () => {
     await expect(copyBtn).toBeVisible()
   })
 
-  test('clicking copy button writes markdown to clipboard', async ({ page, request, context }) => {
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  test('clicking copy button writes full-detail markdown to clipboard', async ({ page, request }) => {
+    // Set up clipboard interceptor before navigating
+    await page.addInitScript(() => {
+      (window as unknown as Record<string, string>).__clipboardText = ''
+      const originalClipboard = navigator.clipboard
+      Object.defineProperty(navigator, 'clipboard', {
+        value: {
+          ...originalClipboard,
+          writeText: (text: string) => {
+            (window as unknown as Record<string, string>).__clipboardText = text
+            return Promise.resolve()
+          },
+          readText: () => Promise.resolve((window as unknown as Record<string, string>).__clipboardText),
+        },
+        configurable: true,
+      })
+    })
+
     await request.post(`${API_BASE}/api/events/reset`)
     await seedEvents(page, [
       { type: 'log', payload: { level: 'info', message: 'clipboard write test' } },
@@ -69,11 +85,12 @@ test.describe('Per-event copy button', () => {
     await openDashboard(page)
     await expect(page.getByText('clipboard write test')).toBeVisible()
 
-    // Click the copy button
-    await page.getByRole('button', { name: 'Copy as markdown' }).first().click()
+    // Click the copy button on the event card that contains our log message
+    const eventCard = page.getByTestId('event-card').filter({ hasText: 'clipboard write test' })
+    await eventCard.getByRole('button', { name: 'Copy as markdown' }).click()
 
-    // Read clipboard and verify it contains the event markdown
-    const clipboardText = await page.evaluate(() => navigator.clipboard.readText())
+    // Read intercepted clipboard text
+    const clipboardText = await page.evaluate(() => (window as unknown as Record<string, string>).__clipboardText)
     expect(clipboardText).toContain('### log')
     expect(clipboardText).toContain('clipboard write test')
   })
@@ -145,8 +162,7 @@ test.describe('Copy All Visible', () => {
     await expect(copyAllBtn).toBeVisible()
   })
 
-  test('copy all writes summary markdown with header to clipboard', async ({ page, request, context }) => {
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  test('copy all writes summary markdown with header to clipboard', async ({ page, request }) => {
     await request.post(`${API_BASE}/api/events/reset`)
     await seedEvents(page, [
       { type: 'log', payload: { level: 'info', message: 'bulk copy event 1' } },
@@ -156,11 +172,26 @@ test.describe('Copy All Visible', () => {
     await openDashboard(page)
     await expect(page.getByText('bulk copy event 1')).toBeVisible()
 
+    // Intercept clipboard API
+    await page.evaluate(() => {
+      (window as unknown as Record<string, string>).__clipboardText = ''
+      Object.defineProperty(navigator, 'clipboard', {
+        value: {
+          writeText: (text: string) => {
+            (window as unknown as Record<string, string>).__clipboardText = text
+            return Promise.resolve()
+          },
+          readText: () => Promise.resolve((window as unknown as Record<string, string>).__clipboardText),
+        },
+        writable: true,
+      })
+    })
+
     // Click copy all
     await page.getByTestId('copy-all-btn').click()
 
-    // Read clipboard
-    const clipboardText = await page.evaluate(() => navigator.clipboard.readText())
+    // Read intercepted clipboard text
+    const clipboardText = await page.evaluate(() => (window as unknown as Record<string, string>).__clipboardText)
 
     // Should contain the session header
     expect(clipboardText).toContain('## Reactotron Events')
@@ -174,8 +205,7 @@ test.describe('Copy All Visible', () => {
     expect(clipboardText).toContain('**Events:**')
   })
 
-  test('copy all shows toast notification on success', async ({ page, request, context }) => {
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  test('copy all shows toast notification on success', async ({ page, request }) => {
     await request.post(`${API_BASE}/api/events/reset`)
     await seedEvents(page, [
       { type: 'log', payload: { level: 'info', message: 'toast test' } },
@@ -183,6 +213,17 @@ test.describe('Copy All Visible', () => {
 
     await openDashboard(page)
     await expect(page.getByText('toast test')).toBeVisible()
+
+    // Intercept clipboard to prevent errors
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: {
+          writeText: () => Promise.resolve(),
+          readText: () => Promise.resolve(''),
+        },
+        writable: true,
+      })
+    })
 
     await page.getByTestId('copy-all-btn').click()
 
@@ -220,8 +261,7 @@ test.describe('Session detail copy/paste', () => {
     expect(content).toContain('session text mode')
   })
 
-  test('copy all works in session detail view', async ({ page, request, context }) => {
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  test('copy all works in session detail view', async ({ page, request }) => {
     await request.post(`${API_BASE}/api/events/reset`)
     await seedEvents(page, [
       { type: 'log', payload: { level: 'info', message: 'session copy all' } },
@@ -236,10 +276,25 @@ test.describe('Session detail copy/paste', () => {
 
     await expect(page.getByText('session copy all')).toBeVisible()
 
+    // Intercept clipboard API
+    await page.evaluate(() => {
+      (window as unknown as Record<string, string>).__clipboardText = ''
+      Object.defineProperty(navigator, 'clipboard', {
+        value: {
+          writeText: (text: string) => {
+            (window as unknown as Record<string, string>).__clipboardText = text
+            return Promise.resolve()
+          },
+          readText: () => Promise.resolve((window as unknown as Record<string, string>).__clipboardText),
+        },
+        writable: true,
+      })
+    })
+
     // Click copy all
     await page.getByTestId('copy-all-btn').click()
 
-    const clipboardText = await page.evaluate(() => navigator.clipboard.readText())
+    const clipboardText = await page.evaluate(() => (window as unknown as Record<string, string>).__clipboardText)
     expect(clipboardText).toContain('## Reactotron Events')
     expect(clipboardText).toContain('CopyAllApp')
     expect(clipboardText).toContain('session copy all')
@@ -249,8 +304,7 @@ test.describe('Session detail copy/paste', () => {
 // ─── Filters + copy interaction ─────────────────────────────────────────────
 
 test.describe('Filters and copy interaction', () => {
-  test('copy all respects active filters', async ({ page, request, context }) => {
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  test('copy all respects active filters', async ({ page, request }) => {
     await request.post(`${API_BASE}/api/events/reset`)
     await seedEvents(page, [
       { type: 'log', payload: { level: 'info', message: 'info event for filter' } },
@@ -267,10 +321,25 @@ test.describe('Filters and copy interaction', () => {
     await expect(page.getByText('error event for filter')).toBeVisible()
     await expect(page.getByText('info event for filter')).not.toBeVisible()
 
+    // Intercept clipboard API
+    await page.evaluate(() => {
+      (window as unknown as Record<string, string>).__clipboardText = ''
+      Object.defineProperty(navigator, 'clipboard', {
+        value: {
+          writeText: (text: string) => {
+            (window as unknown as Record<string, string>).__clipboardText = text
+            return Promise.resolve()
+          },
+          readText: () => Promise.resolve((window as unknown as Record<string, string>).__clipboardText),
+        },
+        writable: true,
+      })
+    })
+
     // Copy all
     await page.getByTestId('copy-all-btn').click()
 
-    const clipboardText = await page.evaluate(() => navigator.clipboard.readText())
+    const clipboardText = await page.evaluate(() => (window as unknown as Record<string, string>).__clipboardText)
     // Should contain error event
     expect(clipboardText).toContain('error event for filter')
     // Should NOT contain info event

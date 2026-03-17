@@ -45,6 +45,7 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
       borderLeftWidth="4px"
       borderLeftColor={event.level === 'error' ? 'red.400' : event.network ? 'reactotron.400' : 'twilight.blue'}
       minW={0}
+      data-testid="event-card"
     >
       <HStack justify="space-between" mb={2} align="center" minW={0}>
         <HStack spacing={2} minW={0}>
