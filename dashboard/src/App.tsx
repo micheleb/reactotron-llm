@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Badge,
   Box,
@@ -17,16 +17,21 @@ import {
   TabList,
   Tabs,
   Text,
+  useDisclosure,
+  useToast,
   VStack,
 } from '@chakra-ui/react'
 
 import type { CuratedEvent } from '@shared/types'
+import { extractLiveMetadata, formatEventsMarkdown } from './utils/markdown'
 import { formatJson } from './utils/normalize'
+import ClipboardFallbackModal from './components/ClipboardFallbackModal'
 import EventCard from './components/EventCard'
 import FilterBar from './components/FilterBar'
 import SessionCompare from './components/SessionCompare'
 import SessionDetail from './components/SessionDetail'
 import SessionTree from './components/SessionTree'
+import TextModeView from './components/TextModeView'
 import { useEventFilter } from './hooks/useEventFilter'
 
 type EventsResponse = {
@@ -70,6 +75,11 @@ export default function App() {
   const [viewState, setViewState] = useState<ViewState>({ tab: 'live' })
   const [compareMode, setCompareMode] = useState(false)
   const [selectedForCompare, setSelectedForCompare] = useState<Set<string>>(new Set())
+  const [textMode, setTextMode] = useState(false)
+  const [snapshotEvents, setSnapshotEvents] = useState<CuratedEvent[] | null>(null)
+  const toast = useToast()
+  const { isOpen: isFallbackOpen, onOpen: onFallbackOpen, onClose: onFallbackClose } = useDisclosure()
+  const [fallbackContent, setFallbackContent] = useState('')
 
   const {
     typeFilter,
@@ -204,6 +214,39 @@ export default function App() {
     }
   }
 
+  const newEventsSinceSnapshot = textMode && snapshotEvents
+    ? filteredEvents.length - snapshotEvents.length
+    : 0
+
+  const handleTextModeToggle = useCallback(() => {
+    setTextMode((prev) => {
+      if (!prev) setSnapshotEvents([...filteredEvents])
+      else setSnapshotEvents(null)
+      return !prev
+    })
+  }, [filteredEvents])
+
+  const handleSnapshotRefresh = useCallback(() => {
+    setSnapshotEvents([...filteredEvents])
+  }, [filteredEvents])
+
+  const handleCopyAll = useCallback(async () => {
+    const metadata = extractLiveMetadata(events, filteredEvents)
+    const md = formatEventsMarkdown(filteredEvents, metadata)
+    try {
+      await navigator.clipboard.writeText(md)
+      toast({
+        title: `Copied ${filteredEvents.length} events to clipboard`,
+        status: 'success',
+        duration: 2000,
+        isClosable: true,
+      })
+    } catch {
+      setFallbackContent(md)
+      onFallbackOpen()
+    }
+  }, [events, filteredEvents, toast, onFallbackOpen])
+
   return (
     <Box minH="100vh" maxW="100vw" overflowX="auto" bg="#151515" p={6}>
       <VStack align="stretch" spacing={4}>
@@ -333,29 +376,43 @@ export default function App() {
               onErrorsOnlyChange={setErrorsOnly}
               onSortOrderToggle={toggleSortOrder}
               onReset={resetFilters}
+              textMode={textMode}
+              onTextModeToggle={handleTextModeToggle}
+              onCopyAll={handleCopyAll}
+              eventCount={filteredEvents.length}
             />
 
             <Grid templateColumns={{ base: '1fr', lg: '3fr 2fr' }} gap={4} minW={0}>
               <GridItem minW={0}>
                 <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900" maxH="65vh" overflowY="auto" overflowX="auto" minW={0}>
                   <Heading size="sm" mb={3}>Curated Events ({filteredEvents.length}/{events.length})</Heading>
-                  <VStack align="stretch" spacing={3}>
-                    {filteredEvents.map((event, index) => (
-                      <EventCard key={`${event.ts}-${index}`} event={event} />
-                    ))}
-                  </VStack>
-                  {hasMore ? (
-                    <Button
-                      mt={4}
-                      w="100%"
-                      size="sm"
-                      variant="outline"
-                      isLoading={loadingMore}
-                      onClick={() => loadMore().catch(() => undefined)}
-                    >
-                      Load more
-                    </Button>
-                  ) : null}
+                  {textMode ? (
+                    <TextModeView
+                      events={snapshotEvents ?? filteredEvents}
+                      newEventCount={newEventsSinceSnapshot > 0 ? newEventsSinceSnapshot : undefined}
+                      onRefresh={handleSnapshotRefresh}
+                    />
+                  ) : (
+                    <>
+                      <VStack align="stretch" spacing={3}>
+                        {filteredEvents.map((event, index) => (
+                          <EventCard key={`${event.ts}-${index}`} event={event} />
+                        ))}
+                      </VStack>
+                      {hasMore ? (
+                        <Button
+                          mt={4}
+                          w="100%"
+                          size="sm"
+                          variant="outline"
+                          isLoading={loadingMore}
+                          onClick={() => loadMore().catch(() => undefined)}
+                        >
+                          Load more
+                        </Button>
+                      ) : null}
+                    </>
+                  )}
                 </Box>
               </GridItem>
 
@@ -421,6 +478,7 @@ export default function App() {
           />
         )}
       </VStack>
+      <ClipboardFallbackModal isOpen={isFallbackOpen} onClose={onFallbackClose} content={fallbackContent} />
     </Box>
   )
 }

@@ -18,7 +18,7 @@ import {
   VStack,
   useDisclosure,
 } from '@chakra-ui/react'
-import { ChevronDownIcon, TriangleDownIcon, TriangleUpIcon } from '@chakra-ui/icons'
+import { ChevronDownIcon, CopyIcon, TriangleDownIcon, TriangleUpIcon, ViewIcon, ViewOffIcon } from '@chakra-ui/icons'
 import type { SortOrder } from '../hooks/useEventFilter'
 
 type FilterBarProps = {
@@ -34,6 +34,10 @@ type FilterBarProps = {
   onErrorsOnlyChange: (value: boolean) => void
   onSortOrderToggle: () => void
   onReset: () => void
+  textMode?: boolean
+  onTextModeToggle?: () => void
+  onCopyAll?: () => void
+  eventCount?: number
 }
 
 function typeFilterLabel(typeFilter: Set<string>): string {
@@ -55,6 +59,10 @@ export default function FilterBar({
   onErrorsOnlyChange,
   onSortOrderToggle,
   onReset,
+  textMode,
+  onTextModeToggle,
+  onCopyAll,
+  eventCount,
 }: FilterBarProps) {
   const { isOpen, onToggle, onClose } = useDisclosure()
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -182,6 +190,33 @@ export default function FilterBar({
         <Button size="sm" variant="subtle" onClick={onReset}>
           Reset
         </Button>
+        {onTextModeToggle ? (
+          <Tooltip label={textMode ? 'Switch to card view' : 'Switch to text view'} placement="top">
+            <IconButton
+              aria-label={textMode ? 'Switch to card view' : 'Switch to text view'}
+              aria-pressed={textMode}
+              icon={textMode ? <ViewOffIcon /> : <ViewIcon />}
+              size="sm"
+              variant={textMode ? 'solid' : 'subtle'}
+              colorScheme={textMode ? 'reactotron' : undefined}
+              onClick={onTextModeToggle}
+              data-testid="text-mode-toggle"
+            />
+          </Tooltip>
+        ) : null}
+        {onCopyAll ? (
+          <Tooltip label={`Copy all ${eventCount ?? 0} visible events`} placement="top">
+            <IconButton
+              aria-label="Copy all visible events"
+              icon={<CopyIcon />}
+              size="sm"
+              variant="subtle"
+              onClick={onCopyAll}
+              isDisabled={eventCount === 0}
+              data-testid="copy-all-btn"
+            />
+          </Tooltip>
+        ) : null}
       </HStack>
     </Box>
   )
