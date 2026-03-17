@@ -51,8 +51,8 @@ test.describe('Per-event copy button', () => {
 
     await openDashboard(page)
 
-    // Wait for the event to render
-    await expect(page.getByText('copy button test')).toBeVisible()
+    // Wait for any event card to render (may be the seeded event or client.intro)
+    await expect(page.getByTestId('event-card').first()).toBeVisible()
 
     // Copy button should be visible (aria-label "Copy as markdown")
     const copyBtn = page.getByRole('button', { name: 'Copy as markdown' }).first()
