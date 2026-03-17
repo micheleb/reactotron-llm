@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Badge,
   Box,
@@ -21,6 +21,7 @@ import type { CuratedEvent } from '@shared/types'
 import type { SessionStats } from '@shared/types'
 import EventCard from './EventCard'
 import FilterBar from './FilterBar'
+import { useEventFilter } from '../hooks/useEventFilter'
 
 type SessionEventsResponse = {
   ok: boolean
@@ -80,10 +81,19 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
   const [meta, setMeta] = useState<SessionResponse['session'] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [typeFilter, setTypeFilter] = useState('')
-  const [levelFilter, setLevelFilter] = useState('')
-  const [urlFilter, setUrlFilter] = useState('')
-  const [errorsOnly, setErrorsOnly] = useState(false)
+  const {
+    typeFilter,
+    levelFilter,
+    urlFilter,
+    errorsOnly,
+    eventTypes,
+    filteredEvents,
+    setTypeFilter,
+    setLevelFilter,
+    setUrlFilter,
+    setErrorsOnly,
+    resetFilters,
+  } = useEventFilter(events)
 
   async function loadSession() {
     setLoading(true)
@@ -132,23 +142,6 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
     loadSession().catch(() => undefined)
   }, [sessionId, apiBase])
 
-  const eventTypes = useMemo(
-    () => Array.from(new Set(events.map((e) => e.type))).sort((a, b) => a.localeCompare(b)),
-    [events],
-  )
-
-  const filteredEvents = useMemo(() => {
-    return events.filter((event) => {
-      if (errorsOnly && event.level !== 'error') return false
-      if (typeFilter && event.type !== typeFilter) return false
-      if (levelFilter && (event.level ?? '') !== levelFilter) return false
-      if (urlFilter) {
-        const url = (event.network?.url ?? '').toLowerCase()
-        if (!url.includes(urlFilter.toLowerCase())) return false
-      }
-      return true
-    })
-  }, [errorsOnly, events, levelFilter, typeFilter, urlFilter])
 
   if (loading) {
     return (
@@ -301,12 +294,7 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
         onLevelFilterChange={setLevelFilter}
         onUrlFilterChange={setUrlFilter}
         onErrorsOnlyChange={setErrorsOnly}
-        onReset={() => {
-          setTypeFilter('')
-          setLevelFilter('')
-          setUrlFilter('')
-          setErrorsOnly(false)
-        }}
+        onReset={resetFilters}
       />
 
       {filteredEvents.length === 0 ? (

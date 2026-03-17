@@ -26,6 +26,7 @@ import FilterBar from './components/FilterBar'
 import SessionCompare from './components/SessionCompare'
 import SessionDetail from './components/SessionDetail'
 import SessionTree from './components/SessionTree'
+import { useEventFilter } from './hooks/useEventFilter'
 
 type EventsResponse = {
   ok: boolean
@@ -105,13 +106,23 @@ export default function App() {
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [serverLoadedCount, setServerLoadedCount] = useState(0)
-  const [typeFilter, setTypeFilter] = useState('')
-  const [levelFilter, setLevelFilter] = useState('')
-  const [urlFilter, setUrlFilter] = useState('')
-  const [errorsOnly, setErrorsOnly] = useState(false)
   const [viewState, setViewState] = useState<ViewState>({ tab: 'live' })
   const [compareMode, setCompareMode] = useState(false)
   const [selectedForCompare, setSelectedForCompare] = useState<Set<string>>(new Set())
+
+  const {
+    typeFilter,
+    levelFilter,
+    urlFilter,
+    errorsOnly,
+    eventTypes,
+    filteredEvents,
+    setTypeFilter,
+    setLevelFilter,
+    setUrlFilter,
+    setErrorsOnly,
+    resetFilters,
+  } = useEventFilter(events)
 
   const tabIndex = viewState.tab === 'live' ? 0 : 1
 
@@ -166,6 +177,7 @@ export default function App() {
   async function resetEvents() {
     await fetch(`${apiBase}/api/events/reset`, { method: 'POST' })
     setEvents([])
+    resetFilters()
   }
 
   useEffect(() => {
@@ -189,6 +201,7 @@ export default function App() {
         }
         if (parsed.kind === 'events-reset') {
           setEvents([])
+          resetFilters()
         }
         if (parsed.kind === 'state-updated') {
           loadState().catch(() => undefined)
@@ -203,24 +216,6 @@ export default function App() {
 
   const errorCount = useMemo(() => events.filter((event) => event.level === 'error').length, [events])
   const networkCount = useMemo(() => events.filter((event) => event.network !== undefined).length, [events])
-  const eventTypes = useMemo(
-    () => Array.from(new Set(events.map((event) => event.type))).sort((a, b) => a.localeCompare(b)),
-    [events],
-  )
-  const filteredEvents = useMemo(() => {
-    return [...events]
-      .filter((event) => {
-      if (errorsOnly && event.level !== 'error') return false
-      if (typeFilter && event.type !== typeFilter) return false
-      if (levelFilter && (event.level ?? '') !== levelFilter) return false
-      if (urlFilter) {
-        const url = (event.network?.url ?? '').toLowerCase()
-        if (!url.includes(urlFilter.toLowerCase())) return false
-      }
-      return true
-      })
-      .sort(byNewest)
-  }, [errorsOnly, events, levelFilter, typeFilter, urlFilter])
 
   const isSessionDetail = viewState.tab === 'history' && viewState.view === 'session'
   const isCompareView = viewState.tab === 'history' && viewState.view === 'compare'
@@ -276,7 +271,7 @@ export default function App() {
                   isDisabled={events.length === 0}
                   onClick={() => {
                     const params = new URLSearchParams()
-                    if (typeFilter) params.set('type', typeFilter)
+                    if (typeFilter.size > 0) params.set('type', Array.from(typeFilter).join(','))
                     if (levelFilter) params.set('level', levelFilter)
                     else if (errorsOnly) params.set('level', 'error')
                     const qs = params.toString()
@@ -372,12 +367,7 @@ export default function App() {
               onLevelFilterChange={setLevelFilter}
               onUrlFilterChange={setUrlFilter}
               onErrorsOnlyChange={setErrorsOnly}
-              onReset={() => {
-                setTypeFilter('')
-                setLevelFilter('')
-                setUrlFilter('')
-                setErrorsOnly(false)
-              }}
+              onReset={resetFilters}
             />
 
             <Grid templateColumns={{ base: '1fr', lg: '3fr 2fr' }} gap={4} minW={0}>
