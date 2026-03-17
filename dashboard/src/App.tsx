@@ -21,6 +21,7 @@ import {
 } from '@chakra-ui/react'
 
 import type { CuratedEvent } from '@shared/types'
+import { formatJson } from './utils/normalize'
 import EventCard from './components/EventCard'
 import FilterBar from './components/FilterBar'
 import SessionCompare from './components/SessionCompare'
@@ -51,46 +52,6 @@ type ViewState =
 
 const DEFAULT_API_BASE = 'http://localhost:9090'
 const DEFAULT_WS_URL = 'ws://localhost:9092'
-
-function normalizePlaceholders(value: unknown): unknown {
-  if (typeof value === 'string') {
-    switch (value.trim()) {
-      case '~~~ false ~~~':
-        return false
-      case '~~~ true ~~~':
-        return true
-      case '~~~ null ~~~':
-        return null
-      case '~~~ zero ~~~':
-        return 0
-      case '~~~ empty string ~~~':
-        return ''
-      case '~~~ undefined ~~~':
-        return null
-      default:
-        return value
-    }
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizePlaceholders(item))
-  }
-
-  if (value && typeof value === 'object') {
-    const obj = value as Record<string, unknown>
-    const normalized: Record<string, unknown> = {}
-    for (const [key, item] of Object.entries(obj)) {
-      normalized[key] = normalizePlaceholders(item)
-    }
-    return normalized
-  }
-
-  return value
-}
-
-function formatJson(value: unknown): string {
-  return JSON.stringify(normalizePlaceholders(value), null, 2)
-}
 
 function byNewest(a: CuratedEvent, b: CuratedEvent): number {
   return new Date(b.ts).getTime() - new Date(a.ts).getTime()
