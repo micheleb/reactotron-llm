@@ -60,7 +60,7 @@ export default defineConfig({
       name: 'copy-paste',
       testMatch: 'tests/copy-paste.spec.ts',
       use: { browserName: 'chromium' },
-      dependencies: ['api', 'ws', 'dashboard'],
+      dependencies: ['dashboard', 'sessions'],
     },
   ],
 })
