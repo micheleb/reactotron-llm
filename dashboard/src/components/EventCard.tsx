@@ -15,60 +15,16 @@ import {
   Text,
 } from '@chakra-ui/react'
 
+import { useCallback } from 'react'
+
 import type { CuratedEvent } from '@shared/types'
-
-function normalizePlaceholders(value: unknown): unknown {
-  if (typeof value === 'string') {
-    switch (value.trim()) {
-      case '~~~ false ~~~':
-        return false
-      case '~~~ true ~~~':
-        return true
-      case '~~~ null ~~~':
-        return null
-      case '~~~ zero ~~~':
-        return 0
-      case '~~~ empty string ~~~':
-        return ''
-      case '~~~ undefined ~~~':
-        return null
-      default:
-        return value
-    }
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizePlaceholders(item))
-  }
-
-  if (value && typeof value === 'object') {
-    const obj = value as Record<string, unknown>
-    const normalized: Record<string, unknown> = {}
-    for (const [key, item] of Object.entries(obj)) {
-      normalized[key] = normalizePlaceholders(item)
-    }
-    return normalized
-  }
-
-  return value
-}
-
-function formatJson(value: unknown): string {
-  return JSON.stringify(normalizePlaceholders(value), null, 2)
-}
-
-function formatTime(ts: string): string {
-  const date = new Date(ts)
-  if (Number.isNaN(date.getTime())) return ts
-
-  const hh = String(date.getHours()).padStart(2, '0')
-  const mm = String(date.getMinutes()).padStart(2, '0')
-  const ss = String(date.getSeconds()).padStart(2, '0')
-  const ms = String(date.getMilliseconds()).padStart(3, '0')
-  return `${hh}:${mm}:${ss}.${ms}`
-}
+import { formatEventMarkdown } from '../utils/markdown'
+import { formatTime } from '../utils/normalize'
+import CopyButton from './CopyButton'
+import JsonBlock from './JsonBlock'
 
 export default function EventCard({ event }: { event: CuratedEvent }) {
+  const getMarkdown = useCallback(() => formatEventMarkdown(event, 'full'), [event])
   const actionDisplay = event.action?.displayName
   const actionLabel = event.action?.name ?? event.action?.type
   const showActionAsPrimary =
@@ -90,6 +46,7 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
       borderLeftWidth="4px"
       borderLeftColor={event.level === 'error' ? 'red.400' : event.network ? 'reactotron.400' : 'twilight.blue'}
       minW={0}
+      data-testid="event-card"
     >
       <HStack justify="space-between" mb={2} align="center" minW={0}>
         <HStack spacing={2} minW={0}>
@@ -99,21 +56,24 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
             <Text fontSize="xs" color="gray.400">({event.type})</Text>
           ) : null}
         </HStack>
-        <Box
-          as="span"
-          fontSize="sm"
-          px={2}
-          py={1}
-          borderRadius="md"
-          bg="reactotron.700"
-          color="white"
-          fontFamily="mono"
-          fontWeight="700"
-          lineHeight="1"
-          title={event.ts}
-        >
-          {formatTime(event.ts)}
-        </Box>
+        <HStack spacing={1}>
+          <CopyButton getText={getMarkdown} />
+          <Box
+            as="span"
+            fontSize="sm"
+            px={2}
+            py={1}
+            borderRadius="md"
+            bg="reactotron.700"
+            color="white"
+            fontFamily="mono"
+            fontWeight="700"
+            lineHeight="1"
+            title={event.ts}
+          >
+            {formatTime(event.ts)}
+          </Box>
+        </HStack>
       </HStack>
       {event.message ? <Text mb={2}>{event.message}</Text> : null}
       {event.action ? (
@@ -131,9 +91,7 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
                   <AccordionIcon />
                 </AccordionButton>
                 <AccordionPanel pt={2}>
-                  <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">
-                    {formatJson(event.action.payload)}
-                  </Code>
+                  <JsonBlock value={event.action.payload} />
                 </AccordionPanel>
               </AccordionItem>
             </Accordion>
@@ -162,35 +120,27 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
                 </TabList>
                 <TabPanels>
                   <TabPanel px={1} py={3}>
-                    <Code whiteSpace="pre-wrap" display="block" p={2}>
-                      {formatJson({
-                        method: event.network.method,
-                        url: event.network.url,
-                        status: event.network.status,
-                        durationMs: event.network.durationMs,
-                        error: event.network.error,
-                      })}
-                    </Code>
+                    <JsonBlock value={{
+                      method: event.network.method,
+                      url: event.network.url,
+                      status: event.network.status,
+                      durationMs: event.network.durationMs,
+                      error: event.network.error,
+                    }} />
                   </TabPanel>
                   <TabPanel px={1} py={3}>
-                    <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">
-                      {formatJson(event.network.requestBody ?? 'No request body')}
-                    </Code>
+                    <JsonBlock value={event.network.requestBody} placeholder="No request body" />
                   </TabPanel>
                   <TabPanel px={1} py={3}>
-                    <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">
-                      {formatJson(event.network.responseBody ?? 'No response body')}
-                    </Code>
+                    <JsonBlock value={event.network.responseBody} placeholder="No response body" />
                   </TabPanel>
                   <TabPanel px={1} py={3}>
                     <Text fontSize="xs" color="gray.400" mb={1}>Request Headers</Text>
-                    <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} mb={3} maxW="100%" overflowX="auto">
-                      {formatJson(event.network.requestHeaders ?? 'No request headers')}
-                    </Code>
+                    <Box mb={3}>
+                      <JsonBlock value={event.network.requestHeaders} placeholder="No request headers" />
+                    </Box>
                     <Text fontSize="xs" color="gray.400" mb={1}>Response Headers</Text>
-                    <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">
-                      {formatJson(event.network.responseHeaders ?? 'No response headers')}
-                    </Code>
+                    <JsonBlock value={event.network.responseHeaders} placeholder="No response headers" />
                   </TabPanel>
                 </TabPanels>
               </Tabs>

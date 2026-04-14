@@ -12,34 +12,150 @@ import {
   PopoverBody,
   PopoverContent,
   PopoverTrigger,
-  Select,
   Text,
   Tooltip,
   VStack,
   useDisclosure,
 } from '@chakra-ui/react'
-import { ChevronDownIcon, TriangleDownIcon, TriangleUpIcon } from '@chakra-ui/icons'
-import type { SortOrder } from '../hooks/useEventFilter'
+import { ChevronDownIcon, CopyIcon, TriangleDownIcon, TriangleUpIcon, ViewIcon, ViewOffIcon } from '@chakra-ui/icons'
+import { LEVEL_NONE, type SortOrder } from '../hooks/useEventFilter'
 
 type FilterBarProps = {
   typeFilter: Set<string>
-  levelFilter: string
+  levelFilter: Set<string>
   urlFilter: string
   errorsOnly: boolean
   sortOrder: SortOrder
   eventTypes: string[]
+  eventLevels: string[]
   onTypeFilterChange: (value: Set<string>) => void
-  onLevelFilterChange: (value: string) => void
+  onLevelFilterChange: (value: Set<string>) => void
   onUrlFilterChange: (value: string) => void
   onErrorsOnlyChange: (value: boolean) => void
   onSortOrderToggle: () => void
   onReset: () => void
+  textMode?: boolean
+  onTextModeToggle?: () => void
+  onCopyAll?: () => void
+  eventCount?: number
 }
 
-function typeFilterLabel(typeFilter: Set<string>): string {
-  if (typeFilter.size === 0) return 'All'
-  if (typeFilter.size <= 2) return Array.from(typeFilter).join(', ')
-  return `${typeFilter.size} types selected`
+function selectionLabel(
+  filter: Set<string>,
+  noun: string,
+  formatOption: (value: string) => string,
+): string {
+  if (filter.size === 0) return 'All'
+  if (filter.size <= 2) return Array.from(filter).map(formatOption).join(', ')
+  return `${filter.size} ${noun} selected`
+}
+
+type CheckboxFilterProps = {
+  label: string
+  noun: string
+  options: string[]
+  selected: Set<string>
+  onChange: (value: Set<string>) => void
+  minW: string
+  emptyText: string
+  triggerTestId: string
+  formatOption?: (value: string) => string
+}
+
+function CheckboxFilter({
+  label,
+  noun,
+  options,
+  selected,
+  onChange,
+  minW,
+  emptyText,
+  triggerTestId,
+  formatOption = (v) => v,
+}: CheckboxFilterProps) {
+  const { isOpen, onToggle, onClose } = useDisclosure()
+  const triggerRef = useRef<HTMLButtonElement>(null)
+
+  function toggle(value: string) {
+    const next = new Set(selected)
+    if (next.has(value)) next.delete(value)
+    else next.add(value)
+    onChange(next)
+  }
+
+  const allSelected = options.length > 0 && selected.size === options.length
+
+  return (
+    <Box minW={minW}>
+      <Text fontSize="sm" mb={1}>{label}</Text>
+      <Popover isOpen={isOpen} onClose={onClose} placement="bottom-start" isLazy>
+        <PopoverTrigger>
+          <Button
+            ref={triggerRef}
+            variant="outline"
+            size="md"
+            w="100%"
+            justifyContent="space-between"
+            rightIcon={<ChevronDownIcon />}
+            fontWeight="normal"
+            borderColor="gray.600"
+            color={selected.size > 0 ? 'gray.100' : 'gray.300'}
+            _hover={{ borderColor: 'gray.500' }}
+            onClick={onToggle}
+            data-testid={triggerTestId}
+          >
+            <Text noOfLines={1} textAlign="left">
+              {selectionLabel(selected, noun, formatOption)}
+            </Text>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          bg="gray.900"
+          borderColor="gray.600"
+          w={triggerRef.current ? `${triggerRef.current.offsetWidth}px` : minW}
+        >
+          <PopoverBody p={0}>
+            <HStack justify="space-between" px={3} py={2} borderBottomWidth="1px" borderColor="gray.700">
+              <Button
+                size="xs"
+                variant="ghost"
+                color="reactotron.400"
+                onClick={() => onChange(allSelected ? new Set() : new Set(options))}
+              >
+                {allSelected ? 'Clear' : 'Select All'}
+              </Button>
+            </HStack>
+            <CheckboxGroup value={Array.from(selected)}>
+              <VStack
+                align="stretch"
+                spacing={0}
+                maxH="240px"
+                overflowY="auto"
+                px={3}
+                py={2}
+              >
+                {options.map((opt) => (
+                  <Checkbox
+                    key={opt}
+                    value={opt}
+                    isChecked={selected.has(opt)}
+                    onChange={() => toggle(opt)}
+                    colorScheme="reactotron"
+                    py={1}
+                  >
+                    <Text fontSize="sm">{formatOption(opt)}</Text>
+                  </Checkbox>
+                ))}
+                {options.length === 0 ? (
+                  <Text fontSize="sm" color="gray.500" py={1}>{emptyText}</Text>
+                ) : null}
+              </VStack>
+            </CheckboxGroup>
+          </PopoverBody>
+        </PopoverContent>
+      </Popover>
+    </Box>
+  )
 }
 
 export default function FilterBar({
@@ -49,119 +165,43 @@ export default function FilterBar({
   errorsOnly,
   sortOrder,
   eventTypes,
+  eventLevels,
   onTypeFilterChange,
   onLevelFilterChange,
   onUrlFilterChange,
   onErrorsOnlyChange,
   onSortOrderToggle,
   onReset,
+  textMode,
+  onTextModeToggle,
+  onCopyAll,
+  eventCount,
 }: FilterBarProps) {
-  const { isOpen, onToggle, onClose } = useDisclosure()
-  const triggerRef = useRef<HTMLButtonElement>(null)
-
-  function toggleType(type: string) {
-    const next = new Set(typeFilter)
-    if (next.has(type)) {
-      next.delete(type)
-    } else {
-      next.add(type)
-    }
-    onTypeFilterChange(next)
-  }
-
-  function selectAll() {
-    onTypeFilterChange(new Set(eventTypes))
-  }
-
-  function clearAll() {
-    onTypeFilterChange(new Set())
-  }
-
-  const allSelected = eventTypes.length > 0 && typeFilter.size === eventTypes.length
-
   return (
     <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
       <Heading size="sm" mb={3}>Filters</Heading>
       <HStack align="end" spacing={3} wrap="wrap" minW={0}>
-        <Box minW="220px">
-          <Text fontSize="sm" mb={1}>Type</Text>
-          <Popover isOpen={isOpen} onClose={onClose} placement="bottom-start" isLazy>
-            <PopoverTrigger>
-              <Button
-                ref={triggerRef}
-                variant="outline"
-                size="md"
-                w="100%"
-                justifyContent="space-between"
-                rightIcon={<ChevronDownIcon />}
-                fontWeight="normal"
-                borderColor="gray.600"
-                color={typeFilter.size > 0 ? 'gray.100' : 'gray.300'}
-                _hover={{ borderColor: 'gray.500' }}
-                onClick={onToggle}
-                data-testid="type-filter-trigger"
-              >
-                <Text noOfLines={1} textAlign="left">
-                  {typeFilterLabel(typeFilter)}
-                </Text>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              bg="gray.900"
-              borderColor="gray.600"
-              w={triggerRef.current ? `${triggerRef.current.offsetWidth}px` : '220px'}
-            >
-              <PopoverBody p={0}>
-                <HStack justify="space-between" px={3} py={2} borderBottomWidth="1px" borderColor="gray.700">
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    color="reactotron.400"
-                    onClick={allSelected ? clearAll : selectAll}
-                  >
-                    {allSelected ? 'Clear' : 'Select All'}
-                  </Button>
-                </HStack>
-                <CheckboxGroup value={Array.from(typeFilter)}>
-                  <VStack
-                    align="stretch"
-                    spacing={0}
-                    maxH="240px"
-                    overflowY="auto"
-                    px={3}
-                    py={2}
-                  >
-                    {eventTypes.map((type) => (
-                      <Checkbox
-                        key={type}
-                        value={type}
-                        isChecked={typeFilter.has(type)}
-                        onChange={() => toggleType(type)}
-                        colorScheme="reactotron"
-                        py={1}
-                      >
-                        <Text fontSize="sm">{type}</Text>
-                      </Checkbox>
-                    ))}
-                    {eventTypes.length === 0 ? (
-                      <Text fontSize="sm" color="gray.500" py={1}>No event types</Text>
-                    ) : null}
-                  </VStack>
-                </CheckboxGroup>
-              </PopoverBody>
-            </PopoverContent>
-          </Popover>
-        </Box>
-        <Box minW="180px">
-          <Text fontSize="sm" mb={1}>Level</Text>
-          <Select value={levelFilter} onChange={(e) => onLevelFilterChange(e.target.value)}>
-            <option value="">All</option>
-            <option value="error">error</option>
-            <option value="warn">warn</option>
-            <option value="info">info</option>
-            <option value="debug">debug</option>
-          </Select>
-        </Box>
+        <CheckboxFilter
+          label="Type"
+          noun="types"
+          options={eventTypes}
+          selected={typeFilter}
+          onChange={onTypeFilterChange}
+          minW="220px"
+          emptyText="No event types"
+          triggerTestId="type-filter-trigger"
+        />
+        <CheckboxFilter
+          label="Level"
+          noun="levels"
+          options={eventLevels}
+          selected={levelFilter}
+          onChange={onLevelFilterChange}
+          minW="180px"
+          emptyText="No levels"
+          triggerTestId="level-filter-trigger"
+          formatOption={(v) => (v === LEVEL_NONE ? '(no level)' : v)}
+        />
         <Box minW="260px" flex="1">
           <Text fontSize="sm" mb={1}>URL contains</Text>
           <Input value={urlFilter} onChange={(e) => onUrlFilterChange(e.target.value)} placeholder="/graphql" />
@@ -182,6 +222,33 @@ export default function FilterBar({
         <Button size="sm" variant="subtle" onClick={onReset}>
           Reset
         </Button>
+        {onTextModeToggle ? (
+          <Tooltip label={textMode ? 'Switch to card view' : 'Switch to text view'} placement="top">
+            <IconButton
+              aria-label={textMode ? 'Switch to card view' : 'Switch to text view'}
+              aria-pressed={textMode}
+              icon={textMode ? <ViewOffIcon /> : <ViewIcon />}
+              size="sm"
+              variant={textMode ? 'solid' : 'subtle'}
+              colorScheme={textMode ? 'reactotron' : undefined}
+              onClick={onTextModeToggle}
+              data-testid="text-mode-toggle"
+            />
+          </Tooltip>
+        ) : null}
+        {onCopyAll ? (
+          <Tooltip label={`Copy all ${eventCount ?? 0} visible events`} placement="top">
+            <IconButton
+              aria-label="Copy all visible events"
+              icon={<CopyIcon />}
+              size="sm"
+              variant="subtle"
+              onClick={onCopyAll}
+              isDisabled={eventCount === 0}
+              data-testid="copy-all-btn"
+            />
+          </Tooltip>
+        ) : null}
       </HStack>
     </Box>
   )

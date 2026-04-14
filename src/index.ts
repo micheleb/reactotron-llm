@@ -443,6 +443,9 @@ app.get('/api/export', (c) => {
   const typeParam = c.req.query('type')
   const types = typeParam ? typeParam.split(',').map((t) => t.trim()).filter(Boolean) : undefined
   const levelParam = c.req.query('level') ?? ''
+  const levels = levelParam
+    ? new Set(levelParam.split(',').map((l) => l.trim()).filter(Boolean))
+    : null
   const sessionParam = c.req.query('session') ?? ''
 
   // Resolve session
@@ -477,7 +480,7 @@ app.get('/api/export', (c) => {
     try {
       const event = curateEvent(JSON.parse(row.raw_json), row.timestamp)
       if (!event) continue
-      if (levelParam && (event.level ?? '') !== levelParam) continue
+      if (levels && !levels.has(event.level ?? '__none__')) continue
       curated.push(event)
     } catch { /* skip malformed rows */ }
   }
@@ -502,7 +505,7 @@ app.get('/api/export', (c) => {
     stats,
     filters_applied: {
       ...(types ? { type: types } : {}),
-      ...(levelParam ? { level: levelParam } : {}),
+      ...(levels ? { level: Array.from(levels) } : {}),
     },
     pagination: { limit, offset },
   }
