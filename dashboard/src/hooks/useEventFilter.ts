@@ -3,16 +3,21 @@ import type { CuratedEvent } from '@shared/types'
 
 export type SortOrder = 'newest' | 'oldest'
 
+// Sentinel for events that have no `level` field (state actions, network, etc.).
+// Kept distinct from user-defined level strings so filter logic and UI can handle it explicitly.
+export const LEVEL_NONE = '__none__'
+
 export type EventFilterState = {
   typeFilter: Set<string>
-  levelFilter: string
+  levelFilter: Set<string>
   urlFilter: string
   errorsOnly: boolean
   sortOrder: SortOrder
   eventTypes: string[]
+  eventLevels: string[]
   filteredEvents: CuratedEvent[]
   setTypeFilter: (value: Set<string>) => void
-  setLevelFilter: (value: string) => void
+  setLevelFilter: (value: Set<string>) => void
   setUrlFilter: (value: string) => void
   setErrorsOnly: (value: boolean) => void
   setSortOrder: (value: SortOrder) => void
@@ -22,7 +27,7 @@ export type EventFilterState = {
 
 export function useEventFilter(events: CuratedEvent[]): EventFilterState {
   const [typeFilter, setTypeFilter] = useState<Set<string>>(new Set())
-  const [levelFilter, setLevelFilter] = useState('')
+  const [levelFilter, setLevelFilter] = useState<Set<string>>(new Set())
   const [urlFilter, setUrlFilter] = useState('')
   const [errorsOnly, setErrorsOnly] = useState(false)
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest')
@@ -32,11 +37,29 @@ export function useEventFilter(events: CuratedEvent[]): EventFilterState {
     [events],
   )
 
+  const eventLevels = useMemo(() => {
+    const canonical = ['trace', 'debug', 'info', 'warn', 'error']
+    const order = new Map(canonical.map((l, i) => [l, i]))
+    const levels = new Set<string>(canonical)
+    let hasUnleveled = false
+    for (const e of events) {
+      if (e.level) levels.add(e.level)
+      else hasUnleveled = true
+    }
+    const sorted = Array.from(levels).sort((a, b) => {
+      const ai = order.get(a) ?? canonical.length
+      const bi = order.get(b) ?? canonical.length
+      return ai === bi ? a.localeCompare(b) : ai - bi
+    })
+    if (hasUnleveled) sorted.push(LEVEL_NONE)
+    return sorted
+  }, [events])
+
   const filteredEvents = useMemo(() => {
     const filtered = events.filter((event) => {
       if (errorsOnly && event.level !== 'error') return false
       if (typeFilter.size > 0 && !typeFilter.has(event.type)) return false
-      if (levelFilter && (event.level ?? '') !== levelFilter) return false
+      if (levelFilter.size > 0 && !levelFilter.has(event.level ?? LEVEL_NONE)) return false
       if (urlFilter) {
         const url = (event.network?.url ?? '').toLowerCase()
         if (!url.includes(urlFilter.toLowerCase())) return false
@@ -56,7 +79,7 @@ export function useEventFilter(events: CuratedEvent[]): EventFilterState {
 
   function resetFilters() {
     setTypeFilter(new Set())
-    setLevelFilter('')
+    setLevelFilter(new Set())
     setUrlFilter('')
     setErrorsOnly(false)
     setSortOrder('newest')
@@ -69,6 +92,7 @@ export function useEventFilter(events: CuratedEvent[]): EventFilterState {
     errorsOnly,
     sortOrder,
     eventTypes,
+    eventLevels,
     filteredEvents,
     setTypeFilter,
     setLevelFilter,

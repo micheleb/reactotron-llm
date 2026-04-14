@@ -37,6 +37,7 @@ export default function TextModeView({ events, newEventCount, onRefresh }: TextM
         maxH="65vh"
         overflowY="auto"
         bg="gray.950"
+        color="gray.100"
         fontSize="sm"
         data-testid="text-mode-view"
       >

@@ -88,6 +88,7 @@ export default function App() {
     errorsOnly,
     sortOrder,
     eventTypes,
+    eventLevels,
     filteredEvents,
     setTypeFilter,
     setLevelFilter,
@@ -278,7 +279,7 @@ export default function App() {
                   onClick={() => {
                     const params = new URLSearchParams()
                     if (typeFilter.size > 0) params.set('type', Array.from(typeFilter).join(','))
-                    if (levelFilter) params.set('level', levelFilter)
+                    if (levelFilter.size > 0) params.set('level', Array.from(levelFilter).join(','))
                     else if (errorsOnly) params.set('level', 'error')
                     const qs = params.toString()
                     window.open(`${apiBase}/api/export${qs ? `?${qs}` : ''}`)
@@ -370,6 +371,7 @@ export default function App() {
               errorsOnly={errorsOnly}
               sortOrder={sortOrder}
               eventTypes={eventTypes}
+              eventLevels={eventLevels}
               onTypeFilterChange={setTypeFilter}
               onLevelFilterChange={setLevelFilter}
               onUrlFilterChange={setUrlFilter}

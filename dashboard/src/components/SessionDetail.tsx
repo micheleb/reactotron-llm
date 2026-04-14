@@ -94,6 +94,7 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
     errorsOnly,
     sortOrder,
     eventTypes,
+    eventLevels,
     filteredEvents,
     setTypeFilter,
     setLevelFilter,
@@ -332,6 +333,7 @@ export default function SessionDetail({ apiBase, sessionId, onBack, onCompareWit
         errorsOnly={errorsOnly}
         sortOrder={sortOrder}
         eventTypes={eventTypes}
+        eventLevels={eventLevels}
         onTypeFilterChange={setTypeFilter}
         onLevelFilterChange={setLevelFilter}
         onUrlFilterChange={setUrlFilter}

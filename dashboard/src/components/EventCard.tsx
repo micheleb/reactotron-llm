@@ -19,8 +19,9 @@ import { useCallback } from 'react'
 
 import type { CuratedEvent } from '@shared/types'
 import { formatEventMarkdown } from '../utils/markdown'
-import { formatJson, formatTime } from '../utils/normalize'
+import { formatTime } from '../utils/normalize'
 import CopyButton from './CopyButton'
+import JsonBlock from './JsonBlock'
 
 export default function EventCard({ event }: { event: CuratedEvent }) {
   const getMarkdown = useCallback(() => formatEventMarkdown(event, 'full'), [event])
@@ -90,9 +91,7 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
                   <AccordionIcon />
                 </AccordionButton>
                 <AccordionPanel pt={2}>
-                  <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">
-                    {formatJson(event.action.payload)}
-                  </Code>
+                  <JsonBlock value={event.action.payload} />
                 </AccordionPanel>
               </AccordionItem>
             </Accordion>
@@ -121,35 +120,27 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
                 </TabList>
                 <TabPanels>
                   <TabPanel px={1} py={3}>
-                    <Code whiteSpace="pre-wrap" display="block" p={2}>
-                      {formatJson({
-                        method: event.network.method,
-                        url: event.network.url,
-                        status: event.network.status,
-                        durationMs: event.network.durationMs,
-                        error: event.network.error,
-                      })}
-                    </Code>
+                    <JsonBlock value={{
+                      method: event.network.method,
+                      url: event.network.url,
+                      status: event.network.status,
+                      durationMs: event.network.durationMs,
+                      error: event.network.error,
+                    }} />
                   </TabPanel>
                   <TabPanel px={1} py={3}>
-                    <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">
-                      {formatJson(event.network.requestBody ?? 'No request body')}
-                    </Code>
+                    <JsonBlock value={event.network.requestBody} placeholder="No request body" />
                   </TabPanel>
                   <TabPanel px={1} py={3}>
-                    <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">
-                      {formatJson(event.network.responseBody ?? 'No response body')}
-                    </Code>
+                    <JsonBlock value={event.network.responseBody} placeholder="No response body" />
                   </TabPanel>
                   <TabPanel px={1} py={3}>
                     <Text fontSize="xs" color="gray.400" mb={1}>Request Headers</Text>
-                    <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} mb={3} maxW="100%" overflowX="auto">
-                      {formatJson(event.network.requestHeaders ?? 'No request headers')}
-                    </Code>
+                    <Box mb={3}>
+                      <JsonBlock value={event.network.requestHeaders} placeholder="No request headers" />
+                    </Box>
                     <Text fontSize="xs" color="gray.400" mb={1}>Response Headers</Text>
-                    <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={2} maxW="100%" overflowX="auto">
-                      {formatJson(event.network.responseHeaders ?? 'No response headers')}
-                    </Code>
+                    <JsonBlock value={event.network.responseHeaders} placeholder="No response headers" />
                   </TabPanel>
                 </TabPanels>
               </Tabs>

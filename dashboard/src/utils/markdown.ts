@@ -163,7 +163,7 @@ export function formatEventsMarkdown(
     parts.push(formatSessionHeader(metadata))
   }
 
-  parts.push(events.map((e) => formatEventSummary(e)).join('\n'))
+  parts.push(events.map((e) => `- ${formatEventSummary(e)}`).join('\n'))
 
   return parts.join('\n')
 }
