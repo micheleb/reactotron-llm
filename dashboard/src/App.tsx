@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogOverlay,
   Badge,
   Box,
   Button,
@@ -80,6 +86,8 @@ export default function App() {
   const toast = useToast()
   const { isOpen: isFallbackOpen, onOpen: onFallbackOpen, onClose: onFallbackClose } = useDisclosure()
   const [fallbackContent, setFallbackContent] = useState('')
+  const { isOpen: isResetConfirmOpen, onOpen: onResetConfirmOpen, onClose: onResetConfirmClose } = useDisclosure()
+  const resetCancelRef = useRef<HTMLButtonElement>(null)
 
   const {
     typeFilter,
@@ -161,31 +169,53 @@ export default function App() {
   }, [apiBase])
 
   useEffect(() => {
-    setWsStatus('connecting')
-    const ws = new WebSocket(wsUrl)
+    let cancelled = false
+    let ws: WebSocket | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let reconnectDelay = 1000
 
-    ws.onopen = () => setWsStatus('open')
-    ws.onclose = () => setWsStatus('closed')
+    function connect() {
+      if (cancelled) return
+      setWsStatus('connecting')
+      ws = new WebSocket(wsUrl)
 
-    ws.onmessage = (message) => {
-      try {
-        const parsed = JSON.parse(message.data)
-        if (parsed.kind === 'event' && parsed.event) {
-          setEvents((current) => [parsed.event, ...current].sort(byNewest))
+      ws.onopen = () => {
+        reconnectDelay = 1000
+        setWsStatus('open')
+      }
+      ws.onclose = () => {
+        if (cancelled) return
+        setWsStatus('closed')
+        reconnectTimer = setTimeout(connect, reconnectDelay)
+        reconnectDelay = Math.min(reconnectDelay * 2, 30_000)
+      }
+
+      ws.onmessage = (message) => {
+        try {
+          const parsed = JSON.parse(message.data)
+          if (parsed.kind === 'event' && parsed.event) {
+            setEvents((current) => [parsed.event, ...current].sort(byNewest))
+          }
+          if (parsed.kind === 'events-reset') {
+            setEvents([])
+            resetFilters()
+          }
+          if (parsed.kind === 'state-updated') {
+            loadState().catch(() => undefined)
+          }
+        } catch {
+          // Ignore malformed dashboard events.
         }
-        if (parsed.kind === 'events-reset') {
-          setEvents([])
-          resetFilters()
-        }
-        if (parsed.kind === 'state-updated') {
-          loadState().catch(() => undefined)
-        }
-      } catch {
-        // Ignore malformed dashboard events.
       }
     }
 
-    return () => ws.close()
+    connect()
+
+    return () => {
+      cancelled = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (ws) ws.close()
+    }
   }, [wsUrl])
 
   const errorCount = useMemo(() => events.filter((event) => event.level === 'error').length, [events])
@@ -265,7 +295,7 @@ export default function App() {
                 <Button size="sm" onClick={() => loadEvents().catch(() => undefined)}>
                   Refresh Events
                 </Button>
-                <Button size="sm" variant="outline" colorScheme="red" onClick={() => resetEvents().catch(() => undefined)}>
+                <Button size="sm" variant="outline" colorScheme="red" onClick={onResetConfirmOpen} data-testid="reset-logs-btn">
                   Reset Logs
                 </Button>
                 <Button size="sm" colorScheme="reactotron" onClick={() => requestDumpState().catch(() => undefined)}>
@@ -481,6 +511,35 @@ export default function App() {
         )}
       </VStack>
       <ClipboardFallbackModal isOpen={isFallbackOpen} onClose={onFallbackClose} content={fallbackContent} />
+      <AlertDialog
+        isOpen={isResetConfirmOpen}
+        onClose={onResetConfirmClose}
+        leastDestructiveRef={resetCancelRef}
+        isCentered
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent bg="gray.900" borderColor="gray.700" borderWidth="1px">
+            <AlertDialogHeader color="gray.100">Reset all logs?</AlertDialogHeader>
+            <AlertDialogBody color="gray.300">
+              This permanently deletes <Text as="span" fontWeight="bold" color="red.300">every event from every session</Text> on the server and clears the view for all connected dashboards. This cannot be undone.
+            </AlertDialogBody>
+            <AlertDialogFooter>
+              <Button ref={resetCancelRef} onClick={onResetConfirmClose}>Cancel</Button>
+              <Button
+                colorScheme="red"
+                ml={3}
+                onClick={() => {
+                  onResetConfirmClose()
+                  resetEvents().catch(() => undefined)
+                }}
+                data-testid="reset-logs-confirm"
+              >
+                Reset Logs
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
     </Box>
   )
 }
