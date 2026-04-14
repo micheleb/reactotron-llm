@@ -18,6 +18,7 @@ import {
 import { useCallback } from 'react'
 
 import type { CuratedEvent } from '@shared/types'
+import { getEventPrimaryType, getEventSecondaryLabel } from '../utils/eventDisplay'
 import { formatEventMarkdown } from '../utils/markdown'
 import { formatTime } from '../utils/normalize'
 import CopyButton from './CopyButton'
@@ -25,14 +26,9 @@ import JsonBlock from './JsonBlock'
 
 export default function EventCard({ event }: { event: CuratedEvent }) {
   const getMarkdown = useCallback(() => formatEventMarkdown(event, 'full'), [event])
-  const actionDisplay = event.action?.displayName
-  const actionLabel = event.action?.name ?? event.action?.type
-  const showActionAsPrimary =
-    event.type === 'state.action.complete' &&
-    actionLabel !== undefined &&
-    actionLabel !== null
-  const primaryLabel = showActionAsPrimary ? (actionDisplay ?? `action.${actionLabel}`) : event.type
-  const primaryType = showActionAsPrimary ? 'ACTION' : event.type
+  const primaryType = getEventPrimaryType(event)
+  const secondaryLabel = getEventSecondaryLabel(event)
+  const showTypeAsTertiary = primaryType === 'ACTION'
   const hasActionPayload =
     !!event.action && Object.prototype.hasOwnProperty.call(event.action, 'payload')
 
@@ -51,8 +47,10 @@ export default function EventCard({ event }: { event: CuratedEvent }) {
       <HStack justify="space-between" mb={2} align="center" minW={0}>
         <HStack spacing={2} minW={0}>
           <Code fontSize="sm" px={2} py={1}>{primaryType}</Code>
-          <Text fontSize="sm" color="gray.200" fontFamily="mono">{primaryLabel}</Text>
-          {showActionAsPrimary ? (
+          {secondaryLabel ? (
+            <Text fontSize="sm" color="gray.200" fontFamily="mono">{secondaryLabel}</Text>
+          ) : null}
+          {showTypeAsTertiary ? (
             <Text fontSize="xs" color="gray.400">({event.type})</Text>
           ) : null}
         </HStack>

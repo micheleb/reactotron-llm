@@ -19,6 +19,7 @@ import {
 } from '@chakra-ui/react'
 import { ChevronDownIcon, CopyIcon, TriangleDownIcon, TriangleUpIcon, ViewIcon, ViewOffIcon } from '@chakra-ui/icons'
 import { LEVEL_NONE, type SortOrder } from '../hooks/useEventFilter'
+import { getTypeFilterLabel } from '../utils/eventDisplay'
 
 type FilterBarProps = {
   typeFilter: Set<string>
@@ -190,6 +191,7 @@ export default function FilterBar({
           minW="220px"
           emptyText="No event types"
           triggerTestId="type-filter-trigger"
+          formatOption={getTypeFilterLabel}
         />
         <CheckboxFilter
           label="Level"
