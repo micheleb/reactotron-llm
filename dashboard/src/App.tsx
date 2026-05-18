@@ -9,7 +9,6 @@ import {
   Badge,
   Box,
   Button,
-  Code,
   Flex,
   Grid,
   GridItem,
@@ -19,33 +18,21 @@ import {
   Stat,
   StatLabel,
   StatNumber,
-  Tab,
-  TabList,
-  Tabs,
   Text,
   useDisclosure,
-  useToast,
   VStack,
 } from '@chakra-ui/react'
 
 import type { CuratedEvent } from '@shared/types'
-import { extractLiveMetadata, formatEventsMarkdown } from './utils/markdown'
 import { formatJson } from './utils/normalize'
-import ClipboardFallbackModal from './components/ClipboardFallbackModal'
-import EventCard from './components/EventCard'
-import FilterBar from './components/FilterBar'
+import LiveClientView from './components/LiveClientView'
+import LivePlaceholderView from './components/LivePlaceholderView'
 import SessionCompare from './components/SessionCompare'
 import SessionDetail from './components/SessionDetail'
 import SessionTree from './components/SessionTree'
-import TextModeView from './components/TextModeView'
-import { useEventFilter } from './hooks/useEventFilter'
-
-type EventsResponse = {
-  ok: boolean
-  count: number
-  events: CuratedEvent[]
-  hasMore: boolean
-}
+import TabBar from './components/TabBar'
+import { useClientRegistry } from './hooks/useClientRegistry'
+import { useNowTick } from './hooks/useNowTick'
 
 type HealthResponse = {
   ok: boolean
@@ -55,11 +42,10 @@ type HealthResponse = {
   latestStateAt: string | null
 }
 
-type ViewState =
-  | { tab: 'live' }
-  | { tab: 'history'; view: 'list' }
-  | { tab: 'history'; view: 'session'; sessionId: string }
-  | { tab: 'history'; view: 'compare'; sessionA: string; sessionB: string }
+type HistoryView =
+  | { view: 'list' }
+  | { view: 'session'; sessionId: string }
+  | { view: 'compare'; sessionA: string; sessionB: string }
 
 const DEFAULT_API_BASE = 'http://localhost:9090'
 const DEFAULT_WS_URL = 'ws://localhost:9092'
@@ -71,167 +57,145 @@ function byNewest(a: CuratedEvent, b: CuratedEvent): number {
 export default function App() {
   const [apiBase, setApiBase] = useState(DEFAULT_API_BASE)
   const [wsUrl, setWsUrl] = useState(DEFAULT_WS_URL)
-  const [events, setEvents] = useState<CuratedEvent[]>([])
-  const [health, setHealth] = useState<HealthResponse | null>(null)
+  const [selectedTabId, setSelectedTabId] = useState<string>('live')
+  const [closedClientIds, setClosedClientIds] = useState<Set<string>>(new Set())
+  const [eventsByClient, setEventsByClient] = useState<Map<string, CuratedEvent[]>>(new Map())
   const [stateText, setStateText] = useState('No state loaded yet')
-  const [wsStatus, setWsStatus] = useState<'connecting' | 'open' | 'closed'>('connecting')
-  const [hasMore, setHasMore] = useState(false)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [serverLoadedCount, setServerLoadedCount] = useState(0)
-  const [viewState, setViewState] = useState<ViewState>({ tab: 'live' })
+  const [health, setHealth] = useState<HealthResponse | null>(null)
+  const [historyView, setHistoryView] = useState<HistoryView>({ view: 'list' })
   const [compareMode, setCompareMode] = useState(false)
   const [selectedForCompare, setSelectedForCompare] = useState<Set<string>>(new Set())
-  const [textMode, setTextMode] = useState(false)
-  const [snapshotEvents, setSnapshotEvents] = useState<CuratedEvent[] | null>(null)
-  const toast = useToast()
-  const { isOpen: isFallbackOpen, onOpen: onFallbackOpen, onClose: onFallbackClose } = useDisclosure()
-  const [fallbackContent, setFallbackContent] = useState('')
   const { isOpen: isResetConfirmOpen, onOpen: onResetConfirmOpen, onClose: onResetConfirmClose } = useDisclosure()
   const resetCancelRef = useRef<HTMLButtonElement>(null)
 
-  const {
-    typeFilter,
-    levelFilter,
-    urlFilter,
-    errorsOnly,
-    sortOrder,
-    eventTypes,
-    eventLevels,
-    filteredEvents,
-    setTypeFilter,
-    setLevelFilter,
-    setUrlFilter,
-    setErrorsOnly,
-    toggleSortOrder,
-    resetFilters,
-  } = useEventFilter(events)
+  const closedIdsRef = useRef(closedClientIds)
+  closedIdsRef.current = closedClientIds
 
-  const tabIndex = viewState.tab === 'live' ? 0 : 1
+  const handleEvent = useCallback((clientId: string, event: CuratedEvent) => {
+    if (closedIdsRef.current.has(clientId)) return
+    setEventsByClient((prev) => {
+      const next = new Map(prev)
+      const existing = next.get(clientId) ?? []
+      next.set(clientId, [event, ...existing].sort(byNewest))
+      return next
+    })
+  }, [])
 
-  async function loadHealth() {
-    const res = await fetch(`${apiBase}/health`)
-    const json = (await res.json()) as HealthResponse
-    setHealth(json)
-  }
+  const handleEventsReset = useCallback(() => {
+    setEventsByClient(new Map())
+    setStateText('No state loaded yet')
+  }, [])
 
-  async function loadEvents() {
-    const res = await fetch(`${apiBase}/api/events?limit=1000`)
-    const json = (await res.json()) as EventsResponse
-    if (!json.ok) return
-    setEvents([...json.events].sort(byNewest))
-    setHasMore(json.hasMore)
-    setServerLoadedCount(json.count)
-  }
+  const apiBaseRef = useRef(apiBase)
+  apiBaseRef.current = apiBase
 
-  async function loadMore() {
-    setLoadingMore(true)
+  const handleStateUpdated = useCallback(async () => {
     try {
-      const res = await fetch(`${apiBase}/api/events?limit=500&offset=${serverLoadedCount}`)
-      const json = (await res.json()) as EventsResponse
-      if (!json.ok) return
-      setEvents((current) => {
-        const existingKeys = new Set(current.map((e) => `${e.ts}|${e.type}`))
-        const newEvents = json.events.filter((e) => !existingKeys.has(`${e.ts}|${e.type}`))
-        return [...current, ...newEvents].sort(byNewest)
-      })
-      setHasMore(json.hasMore)
-      setServerLoadedCount((prev) => prev + json.count)
-    } finally {
-      setLoadingMore(false)
+      const res = await fetch(`${apiBaseRef.current}/api/state`)
+      const json = await res.json()
+      if (json.ok) setStateText(formatJson(json.state))
+    } catch { /* ignore */ }
+  }, [])
+
+  const { orderedClients, wsStatus } = useClientRegistry({
+    wsUrl,
+    onEvent: handleEvent,
+    onEventsReset: handleEventsReset,
+    onStateUpdated: handleStateUpdated,
+  })
+
+  const now = useNowTick(10_000)
+
+  const visibleClients = useMemo(
+    () => orderedClients.filter((c) => !closedClientIds.has(c.clientId)),
+    [orderedClients, closedClientIds],
+  )
+
+  // Auto-select first client when transitioning from Live placeholder
+  useEffect(() => {
+    if (selectedTabId === 'live' && visibleClients.length > 0) {
+      setSelectedTabId(visibleClients[0].clientId)
+    }
+  }, [selectedTabId, visibleClients])
+
+  // Backfill events for newly-seen clients via REST
+  const backfilledRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    for (const client of orderedClients) {
+      if (backfilledRef.current.has(client.clientId)) continue
+      backfilledRef.current.add(client.clientId)
+      fetch(`${apiBase}/api/sessions/${client.clientId}/events`)
+        .then((r) => r.json())
+        .then((json) => {
+          if (!json.ok || !Array.isArray(json.events)) return
+          setEventsByClient((prev) => {
+            const existing = prev.get(client.clientId) ?? []
+            if (existing.length > 0) return prev
+            return new Map(prev).set(client.clientId, [...json.events].sort(byNewest))
+          })
+        })
+        .catch(() => {})
+    }
+  }, [orderedClients, apiBase])
+
+  useEffect(() => {
+    fetch(`${apiBase}/health`).then((r) => r.json()).then(setHealth).catch(() => undefined)
+  }, [apiBase])
+
+  useEffect(() => {
+    fetch(`${apiBase}/api/state`).then((r) => r.json()).then((json) => {
+      if (json.ok) setStateText(formatJson(json.state))
+      else setStateText(json.error ?? 'No state yet')
+    }).catch(() => undefined)
+  }, [apiBase])
+
+  function closeClientTab(clientId: string) {
+    const idx = visibleClients.findIndex((c) => c.clientId === clientId)
+    setClosedClientIds((prev) => new Set(prev).add(clientId))
+    setEventsByClient((prev) => { const n = new Map(prev); n.delete(clientId); return n })
+    if (selectedTabId === clientId) {
+      const remaining = visibleClients.filter((c) => c.clientId !== clientId)
+      if (remaining.length > 0) {
+        setSelectedTabId(remaining[Math.max(0, idx - 1)].clientId)
+      } else {
+        setSelectedTabId('live')
+      }
     }
   }
 
-  async function loadState() {
-    const res = await fetch(`${apiBase}/api/state`)
-    const json = await res.json()
-    if (!json.ok) {
-      setStateText(json.error ?? 'No state yet')
-      return
+  function handleTabSelect(id: string) {
+    setSelectedTabId(id)
+    if (id === 'browse') {
+      setHistoryView({ view: 'list' })
+      setCompareMode(false)
+      setSelectedForCompare(new Set())
     }
-    setStateText(formatJson(json.state))
-  }
-
-  async function requestDumpState() {
-    await fetch(`${apiBase}/dump-state`)
-    await loadState()
   }
 
   async function resetEvents() {
     await fetch(`${apiBase}/api/events/reset`, { method: 'POST' })
-    setEvents([])
-    resetFilters()
+    setEventsByClient(new Map())
+    setStateText('No state loaded yet')
   }
 
-  useEffect(() => {
-    loadHealth().catch(() => undefined)
-    loadEvents().catch(() => undefined)
-    loadState().catch(() => undefined)
-  }, [apiBase])
+  async function requestDumpState() {
+    await fetch(`${apiBase}/dump-state`)
+  }
 
-  useEffect(() => {
-    let cancelled = false
-    let ws: WebSocket | null = null
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-    let reconnectDelay = 1000
+  const activeClient = visibleClients.find((c) => c.clientId === selectedTabId) ?? null
+  const activeEvents = activeClient ? (eventsByClient.get(activeClient.clientId) ?? []) : []
+  const isBrowseTab = selectedTabId === 'browse'
+  const isSessionDetail = isBrowseTab && historyView.view === 'session'
+  const isCompareView = isBrowseTab && historyView.view === 'compare'
 
-    function connect() {
-      if (cancelled) return
-      setWsStatus('connecting')
-      ws = new WebSocket(wsUrl)
-
-      ws.onopen = () => {
-        reconnectDelay = 1000
-        setWsStatus('open')
-      }
-      ws.onclose = () => {
-        if (cancelled) return
-        setWsStatus('closed')
-        reconnectTimer = setTimeout(connect, reconnectDelay)
-        reconnectDelay = Math.min(reconnectDelay * 2, 30_000)
-      }
-
-      ws.onmessage = (message) => {
-        try {
-          const parsed = JSON.parse(message.data)
-          if (parsed.kind === 'event' && parsed.event) {
-            setEvents((current) => [parsed.event, ...current].sort(byNewest))
-          }
-          if (parsed.kind === 'events-reset') {
-            setEvents([])
-            resetFilters()
-          }
-          if (parsed.kind === 'state-updated') {
-            loadState().catch(() => undefined)
-          }
-        } catch {
-          // Ignore malformed dashboard events.
-        }
-      }
-    }
-
-    connect()
-
-    return () => {
-      cancelled = true
-      if (reconnectTimer) clearTimeout(reconnectTimer)
-      if (ws) ws.close()
-    }
-  }, [wsUrl])
-
-  const errorCount = useMemo(() => events.filter((event) => event.level === 'error').length, [events])
-  const networkCount = useMemo(() => events.filter((event) => event.network !== undefined).length, [events])
-
-  const isSessionDetail = viewState.tab === 'history' && viewState.view === 'session'
-  const isCompareView = viewState.tab === 'history' && viewState.view === 'compare'
+  const errorCount = useMemo(() => activeEvents.filter((e) => e.level === 'error').length, [activeEvents])
+  const networkCount = useMemo(() => activeEvents.filter((e) => e.network !== undefined).length, [activeEvents])
 
   function toggleCompareSelect(sessionId: string) {
     setSelectedForCompare((prev) => {
       const next = new Set(prev)
-      if (next.has(sessionId)) {
-        next.delete(sessionId)
-      } else if (next.size < 2) {
-        next.add(sessionId)
-      }
+      if (next.has(sessionId)) next.delete(sessionId)
+      else if (next.size < 2) next.add(sessionId)
       return next
     })
   }
@@ -239,44 +203,11 @@ export default function App() {
   function startCompare() {
     const ids = Array.from(selectedForCompare)
     if (ids.length === 2) {
-      setViewState({ tab: 'history', view: 'compare', sessionA: ids[0], sessionB: ids[1] })
+      setHistoryView({ view: 'compare', sessionA: ids[0], sessionB: ids[1] })
       setCompareMode(false)
       setSelectedForCompare(new Set())
     }
   }
-
-  const newEventsSinceSnapshot = textMode && snapshotEvents
-    ? filteredEvents.length - snapshotEvents.length
-    : 0
-
-  const handleTextModeToggle = useCallback(() => {
-    setTextMode((prev) => {
-      if (!prev) setSnapshotEvents([...filteredEvents])
-      else setSnapshotEvents(null)
-      return !prev
-    })
-  }, [filteredEvents])
-
-  const handleSnapshotRefresh = useCallback(() => {
-    setSnapshotEvents([...filteredEvents])
-  }, [filteredEvents])
-
-  const handleCopyAll = useCallback(async () => {
-    const metadata = extractLiveMetadata(events, filteredEvents)
-    const md = formatEventsMarkdown(filteredEvents, metadata)
-    try {
-      await navigator.clipboard.writeText(md)
-      toast({
-        title: `Copied ${filteredEvents.length} events to clipboard`,
-        status: 'success',
-        duration: 2000,
-        isClosable: true,
-      })
-    } catch {
-      setFallbackContent(md)
-      onFallbackOpen()
-    }
-  }, [events, filteredEvents, toast, onFallbackOpen])
 
   return (
     <Box minH="100vh" maxW="100vw" overflowX="auto" bg="#151515" p={6}>
@@ -290,35 +221,6 @@ export default function App() {
             <Badge colorScheme={wsStatus === 'open' ? 'green' : wsStatus === 'connecting' ? 'yellow' : 'red'}>
               WS {wsStatus}
             </Badge>
-            {viewState.tab === 'live' ? (
-              <>
-                <Button size="sm" onClick={() => loadEvents().catch(() => undefined)}>
-                  Refresh Events
-                </Button>
-                <Button size="sm" variant="outline" colorScheme="red" onClick={onResetConfirmOpen} data-testid="reset-logs-btn">
-                  Reset Logs
-                </Button>
-                <Button size="sm" colorScheme="reactotron" onClick={() => requestDumpState().catch(() => undefined)}>
-                  Dump State
-                </Button>
-                <Button
-                  size="sm"
-                  colorScheme="reactotron"
-                  variant="outline"
-                  isDisabled={events.length === 0}
-                  onClick={() => {
-                    const params = new URLSearchParams()
-                    if (typeFilter.size > 0) params.set('type', Array.from(typeFilter).join(','))
-                    if (levelFilter.size > 0) params.set('level', Array.from(levelFilter).join(','))
-                    else if (errorsOnly) params.set('level', 'error')
-                    const qs = params.toString()
-                    window.open(`${apiBase}/api/export${qs ? `?${qs}` : ''}`)
-                  }}
-                >
-                  Export
-                </Button>
-              </>
-            ) : null}
           </HStack>
         </Flex>
 
@@ -338,32 +240,20 @@ export default function App() {
               </HStack>
             </Box>
           </GridItem>
-          {viewState.tab === 'live' ? (
+          {activeClient ? (
             <GridItem minW={0}>
               <Grid templateColumns="repeat(2, 1fr)" gap={3}>
                 <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
-                  <Stat>
-                    <StatLabel>App Clients</StatLabel>
-                    <StatNumber>{health?.clients ?? 0}</StatNumber>
-                  </Stat>
+                  <Stat><StatLabel>App Clients</StatLabel><StatNumber>{health?.clients ?? 0}</StatNumber></Stat>
                 </Box>
                 <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
-                  <Stat>
-                    <StatLabel>Error Events</StatLabel>
-                    <StatNumber>{errorCount}</StatNumber>
-                  </Stat>
+                  <Stat><StatLabel>Error Events</StatLabel><StatNumber>{errorCount}</StatNumber></Stat>
                 </Box>
                 <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
-                  <Stat>
-                    <StatLabel>Network Events</StatLabel>
-                    <StatNumber>{networkCount}</StatNumber>
-                  </Stat>
+                  <Stat><StatLabel>Network Events</StatLabel><StatNumber>{networkCount}</StatNumber></Stat>
                 </Box>
                 <Box p={3} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900">
-                  <Stat>
-                    <StatLabel>Proxy Port</StatLabel>
-                    <StatNumber>{health?.port ?? 9090}</StatNumber>
-                  </Stat>
+                  <Stat><StatLabel>Proxy Port</StatLabel><StatNumber>{health?.port ?? 9090}</StatNumber></Stat>
                 </Box>
               </Grid>
             </GridItem>
@@ -371,94 +261,50 @@ export default function App() {
         </Grid>
 
         {!isSessionDetail && !isCompareView ? (
-          <Tabs
-            index={tabIndex}
-            onChange={(index) => {
-              if (index === 0) {
-                setViewState({ tab: 'live' })
-                setCompareMode(false)
-                setSelectedForCompare(new Set())
-              } else {
-                setViewState({ tab: 'history', view: 'list' })
-              }
-            }}
-            variant="enclosed"
-            colorScheme="reactotron"
-          >
-            <TabList>
-              <Tab>Live</Tab>
-              <Tab>History</Tab>
-            </TabList>
-          </Tabs>
+          <TabBar
+            selectedTabId={selectedTabId}
+            clients={visibleClients}
+            now={now}
+            onSelect={handleTabSelect}
+            onClose={closeClientTab}
+          />
         ) : null}
 
-        {viewState.tab === 'live' ? (
-          <>
-            <FilterBar
-              typeFilter={typeFilter}
-              levelFilter={levelFilter}
-              urlFilter={urlFilter}
-              errorsOnly={errorsOnly}
-              sortOrder={sortOrder}
-              eventTypes={eventTypes}
-              eventLevels={eventLevels}
-              onTypeFilterChange={setTypeFilter}
-              onLevelFilterChange={setLevelFilter}
-              onUrlFilterChange={setUrlFilter}
-              onErrorsOnlyChange={setErrorsOnly}
-              onSortOrderToggle={toggleSortOrder}
-              onReset={resetFilters}
-              textMode={textMode}
-              onTextModeToggle={handleTextModeToggle}
-              onCopyAll={handleCopyAll}
-              eventCount={filteredEvents.length}
-            />
-
-            <Grid templateColumns={{ base: '1fr', lg: '3fr 2fr' }} gap={4} minW={0}>
-              <GridItem minW={0}>
-                <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900" maxH="65vh" overflowY="auto" overflowX="auto" minW={0}>
-                  <Heading size="sm" mb={3}>Curated Events ({filteredEvents.length}/{events.length})</Heading>
-                  {textMode ? (
-                    <TextModeView
-                      events={snapshotEvents ?? filteredEvents}
-                      newEventCount={newEventsSinceSnapshot > 0 ? newEventsSinceSnapshot : undefined}
-                      onRefresh={handleSnapshotRefresh}
-                    />
-                  ) : (
-                    <>
-                      <VStack align="stretch" spacing={3}>
-                        {filteredEvents.map((event, index) => (
-                          <EventCard key={`${event.ts}-${index}`} event={event} />
-                        ))}
-                      </VStack>
-                      {hasMore ? (
-                        <Button
-                          mt={4}
-                          w="100%"
-                          size="sm"
-                          variant="outline"
-                          isLoading={loadingMore}
-                          onClick={() => loadMore().catch(() => undefined)}
-                        >
-                          Load more
-                        </Button>
-                      ) : null}
-                    </>
-                  )}
-                </Box>
-              </GridItem>
-
-              <GridItem minW={0}>
-                <Box p={4} borderWidth="1px" borderColor="gray.700" borderRadius="lg" bg="gray.900" maxH="65vh" overflowY="auto" overflowX="auto" minW={0}>
-                  <Heading size="sm" mb={3}>State Snapshot</Heading>
-                  <Code whiteSpace="pre-wrap" wordBreak="break-word" overflowWrap="anywhere" display="block" p={3} maxW="100%" overflowX="auto">{stateText}</Code>
-                </Box>
-              </GridItem>
-            </Grid>
-          </>
-        ) : viewState.view === 'list' ? (
+        {activeClient ? (
+          <LiveClientView
+            key={activeClient.clientId}
+            apiBase={apiBase}
+            client={activeClient}
+            events={activeEvents}
+            stateText={stateText}
+            onDumpState={() => requestDumpState().catch(() => undefined)}
+            onRefresh={() => {
+              fetch(`${apiBase}/api/sessions/${activeClient.clientId}/events`)
+                .then((r) => r.json())
+                .then((json) => {
+                  if (json.ok) {
+                    setEventsByClient((prev) =>
+                      new Map(prev).set(activeClient.clientId, [...json.events].sort(byNewest)),
+                    )
+                  }
+                })
+                .catch(() => {})
+            }}
+          />
+        ) : selectedTabId === 'live' ? (
+          <LivePlaceholderView apiBase={apiBase} />
+        ) : isBrowseTab && historyView.view === 'list' ? (
           <VStack align="stretch" spacing={3}>
             <HStack spacing={3}>
+              <Button
+                size="sm"
+                variant="outline"
+                colorScheme="red"
+                onClick={onResetConfirmOpen}
+                data-testid="reset-logs-btn"
+              >
+                Reset Logs
+              </Button>
               <Button
                 size="sm"
                 variant={compareMode ? 'solid' : 'outline'}
@@ -483,34 +329,33 @@ export default function App() {
             <SessionTree
               apiBase={apiBase}
               onSelectSession={(sessionId) =>
-                setViewState({ tab: 'history', view: 'session', sessionId })
+                setHistoryView({ view: 'session', sessionId })
               }
               compareMode={compareMode}
               selectedForCompare={selectedForCompare}
               onToggleCompareSelect={toggleCompareSelect}
             />
           </VStack>
-        ) : viewState.view === 'compare' ? (
+        ) : isCompareView ? (
           <SessionCompare
             apiBase={apiBase}
-            sessionA={viewState.sessionA}
-            sessionB={viewState.sessionB}
-            onBack={() => setViewState({ tab: 'history', view: 'list' })}
+            sessionA={historyView.sessionA}
+            sessionB={historyView.sessionB}
+            onBack={() => setHistoryView({ view: 'list' })}
           />
-        ) : (
+        ) : historyView.view === 'session' ? (
           <SessionDetail
             apiBase={apiBase}
-            sessionId={viewState.sessionId}
-            onBack={() => setViewState({ tab: 'history', view: 'list' })}
+            sessionId={historyView.sessionId}
+            onBack={() => setHistoryView({ view: 'list' })}
             onCompareWith={() => {
               setCompareMode(true)
-              setSelectedForCompare(new Set([viewState.sessionId]))
-              setViewState({ tab: 'history', view: 'list' })
+              setSelectedForCompare(new Set([historyView.sessionId]))
+              setHistoryView({ view: 'list' })
             }}
           />
-        )}
+        ) : null}
       </VStack>
-      <ClipboardFallbackModal isOpen={isFallbackOpen} onClose={onFallbackClose} content={fallbackContent} />
       <AlertDialog
         isOpen={isResetConfirmOpen}
         onClose={onResetConfirmClose}
