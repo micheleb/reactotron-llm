@@ -58,3 +58,22 @@ export type CuratedEvent = {
   }
   details?: JsonObject
 }
+
+export type ClientInfo = {
+  clientId: string
+  connectedAt: string
+  lastSeen: string
+  isOpen: boolean
+  appName?: string
+  platform?: string
+}
+
+export type DashboardMessage =
+  | { kind: 'hello'; clientId: string; connectedAt: string }
+  | { kind: 'clients-snapshot'; clients: ClientInfo[] }
+  | { kind: 'client-connected'; client: ClientInfo }
+  | { kind: 'client-updated'; client: ClientInfo }
+  | { kind: 'client-disconnected'; clientId: string; disconnectedAt: string }
+  | { kind: 'event'; clientId: string; event: CuratedEvent }
+  | { kind: 'state-updated'; clientId: string; capturedAt: string }
+  | { kind: 'events-reset'; at: string }

@@ -5,7 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 
-import type { CuratedEvent } from './shared/types'
+import type { ClientInfo, CuratedEvent } from './shared/types'
 import type { SessionStats } from './shared/types'
 import { STATS_VERSION } from './shared/types'
 import {
@@ -54,7 +54,10 @@ type DashboardWsData = {
 }
 
 const appClients = new Set<ServerWebSocket<AppWsData>>()
+const appClientsBySession = new Map<string, ServerWebSocket<AppWsData>>()
 const dashboardClients = new Set<ServerWebSocket<DashboardWsData>>()
+const clientRegistry = new Map<string, ClientInfo>()
+const lastSeenBroadcastAt = new Map<string, number>()
 let latestState: unknown = null
 let latestStateAt: string | null = null
 
@@ -142,14 +145,29 @@ function formatFullSessionForApi(row: SessionFullRow, eventCount: number) {
 }
 
 function wsBehavior() {
+  // Per-connection state: Hono's bun adapter calls this factory per upgrade,
+  // so this closure is isolated per client. The ws object handlers receive is
+  // a fresh WSContext wrapper each event — its .data doesn't persist across
+  // events, so we keep sessionId in the closure instead.
   let sessionId = ''
 
   return {
     onOpen(_event: Event, ws: ServerWebSocket<AppWsData>) {
       sessionId = crypto.randomUUID()
-      ws.data = { clientId: sessionId, sessionId }
       appClients.add(ws)
+      appClientsBySession.set(sessionId, ws)
       createSession(db, sessionId)
+
+      const now = new Date().toISOString()
+      const info: ClientInfo = {
+        clientId: sessionId,
+        connectedAt: now,
+        lastSeen: now,
+        isOpen: true,
+      }
+      clientRegistry.set(sessionId, info)
+      broadcastDashboard({ kind: 'client-connected', client: info })
+
       console.log(`[ws] client connected session=${sessionId} total=${appClients.size}`)
 
       if (ws.readyState === 1) {
@@ -168,14 +186,24 @@ function wsBehavior() {
 
       const type = getMessageType(parsed)
 
-      // Handle client.intro: extract metadata for the session table
+      // Handle client.intro: extract metadata for the session table + registry
       if (type === 'client.intro') {
         const payload = asObject(getByPath(parsed, 'payload'))
-        updateSessionMetadata(db, sessionId, {
-          appName: firstString(parsed, ['payload.name', 'payload.appName', 'name']),
-          platform: firstString(parsed, ['payload.platform', 'platform']),
-          raw: payload,
-        })
+        const appName = firstString(parsed, ['payload.name', 'payload.appName', 'name'])
+        const platform = firstString(parsed, ['payload.platform', 'platform'])
+        updateSessionMetadata(db, sessionId, { appName, platform, raw: payload })
+
+        const existing = clientRegistry.get(sessionId)
+        if (existing) {
+          const updated: ClientInfo = {
+            ...existing,
+            appName,
+            platform,
+            lastSeen: new Date().toISOString(),
+          }
+          clientRegistry.set(sessionId, updated)
+          broadcastDashboard({ kind: 'client-updated', client: updated })
+        }
       }
 
       // Drop protocol noise (but NOT client.intro)
@@ -187,7 +215,22 @@ function wsBehavior() {
       // Curate for live dashboard broadcast
       const curated = curateEvent(parsed, timestamp)
       if (curated) {
-        broadcastDashboard({ kind: 'event', event: curated })
+        broadcastDashboard({ kind: 'event', clientId: sessionId, event: curated })
+      }
+
+      // Bump lastSeen; throttle client-updated broadcast to 1/sec per client.
+      // The dashboard only needs ~second-precision for the activity dot age bands.
+      const info = clientRegistry.get(sessionId)
+      if (info) {
+        const updated: ClientInfo = { ...info, lastSeen: timestamp }
+        clientRegistry.set(sessionId, updated)
+
+        const nowMs = Date.now()
+        const lastBroadcast = lastSeenBroadcastAt.get(sessionId) ?? 0
+        if (nowMs - lastBroadcast >= 1000) {
+          lastSeenBroadcastAt.set(sessionId, nowMs)
+          broadcastDashboard({ kind: 'client-updated', client: updated })
+        }
       }
 
       // State inference
@@ -200,7 +243,20 @@ function wsBehavior() {
     },
     onClose(_event: CloseEvent, ws: ServerWebSocket<AppWsData>) {
       appClients.delete(ws)
+      appClientsBySession.delete(sessionId)
       closeSession(db, sessionId)
+
+      const existing = clientRegistry.get(sessionId)
+      if (existing) {
+        clientRegistry.set(sessionId, { ...existing, isOpen: false })
+      }
+      lastSeenBroadcastAt.delete(sessionId)
+
+      broadcastDashboard({
+        kind: 'client-disconnected',
+        clientId: sessionId,
+        disconnectedAt: new Date().toISOString(),
+      })
 
       // Compute and cache stats on disconnect
       try {
@@ -592,6 +648,12 @@ Bun.serve<DashboardWsData>({
           kind: 'hello',
           clientId: ws.data.clientId,
           connectedAt: new Date().toISOString(),
+        }),
+      )
+      ws.send(
+        JSON.stringify({
+          kind: 'clients-snapshot',
+          clients: Array.from(clientRegistry.values()),
         }),
       )
     },
