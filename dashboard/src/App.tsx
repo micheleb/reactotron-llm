@@ -60,7 +60,8 @@ export default function App() {
   const [selectedTabId, setSelectedTabId] = useState<string>('live')
   const [closedClientIds, setClosedClientIds] = useState<Set<string>>(new Set())
   const [eventsByClient, setEventsByClient] = useState<Map<string, CuratedEvent[]>>(new Map())
-  const [stateText, setStateText] = useState('No state loaded yet')
+  const [stateByClient, setStateByClient] = useState<Map<string, string>>(new Map())
+  const [globalStateText, setGlobalStateText] = useState('No state loaded yet')
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [historyView, setHistoryView] = useState<HistoryView>({ view: 'list' })
   const [compareMode, setCompareMode] = useState(false)
@@ -83,17 +84,23 @@ export default function App() {
 
   const handleEventsReset = useCallback(() => {
     setEventsByClient(new Map())
-    setStateText('No state loaded yet')
+    setStateByClient(new Map())
+    setGlobalStateText('No state loaded yet')
   }, [])
 
   const apiBaseRef = useRef(apiBase)
   apiBaseRef.current = apiBase
 
-  const handleStateUpdated = useCallback(async () => {
+  const handleStateUpdated = useCallback(async (clientId: string | undefined) => {
     try {
       const res = await fetch(`${apiBaseRef.current}/api/state`)
       const json = await res.json()
-      if (json.ok) setStateText(formatJson(json.state))
+      if (!json.ok) return
+      const text = formatJson(json.state)
+      setGlobalStateText(text)
+      if (clientId) {
+        setStateByClient((prev) => new Map(prev).set(clientId, text))
+      }
     } catch { /* ignore */ }
   }, [])
 
@@ -144,8 +151,8 @@ export default function App() {
 
   useEffect(() => {
     fetch(`${apiBase}/api/state`).then((r) => r.json()).then((json) => {
-      if (json.ok) setStateText(formatJson(json.state))
-      else setStateText(json.error ?? 'No state yet')
+      if (json.ok) setGlobalStateText(formatJson(json.state))
+      else setGlobalStateText(json.error ?? 'No state yet')
     }).catch(() => undefined)
   }, [apiBase])
 
@@ -175,11 +182,15 @@ export default function App() {
   async function resetEvents() {
     await fetch(`${apiBase}/api/events/reset`, { method: 'POST' })
     setEventsByClient(new Map())
-    setStateText('No state loaded yet')
+    setStateByClient(new Map())
+    setGlobalStateText('No state loaded yet')
   }
 
-  async function requestDumpState() {
-    await fetch(`${apiBase}/dump-state`)
+  async function requestDumpState(sessionId?: string) {
+    const url = sessionId
+      ? `${apiBase}/dump-state?session=${sessionId}`
+      : `${apiBase}/dump-state`
+    await fetch(url)
   }
 
   const activeClient = visibleClients.find((c) => c.clientId === selectedTabId) ?? null
@@ -276,8 +287,8 @@ export default function App() {
             apiBase={apiBase}
             client={activeClient}
             events={activeEvents}
-            stateText={stateText}
-            onDumpState={() => requestDumpState().catch(() => undefined)}
+            stateText={stateByClient.get(activeClient.clientId) ?? globalStateText}
+            onDumpState={() => requestDumpState(activeClient.clientId).catch(() => undefined)}
             onRefresh={() => {
               fetch(`${apiBase}/api/sessions/${activeClient.clientId}/events`)
                 .then((r) => r.json())

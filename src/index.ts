@@ -58,6 +58,7 @@ const appClientsBySession = new Map<string, ServerWebSocket<AppWsData>>()
 const dashboardClients = new Set<ServerWebSocket<DashboardWsData>>()
 const clientRegistry = new Map<string, ClientInfo>()
 const lastSeenBroadcastAt = new Map<string, number>()
+const latestStatePerClient = new Map<string, { state: unknown; at: string }>()
 let latestState: unknown = null
 let latestStateAt: string | null = null
 
@@ -238,6 +239,7 @@ function wsBehavior() {
       if (maybeState !== null) {
         latestState = maybeState
         latestStateAt = timestamp
+        latestStatePerClient.set(sessionId, { state: maybeState, at: timestamp })
         writeFile(STATE_PATH, JSON.stringify(maybeState, null, 2), 'utf8').catch(() => {})
       }
     },
@@ -274,15 +276,19 @@ function wsBehavior() {
   }
 }
 
-async function requestStateFromClients(): Promise<void> {
+async function requestStateFromClients(targetSessionId?: string): Promise<void> {
   const messages = [
     { type: 'state.values.request' },
     { type: 'api.state.values.request' },
     { type: 'state.request' },
   ]
 
-  for (const ws of appClients) {
-    if (ws.readyState !== ws.OPEN) continue
+  const targets = targetSessionId
+    ? (() => { const ws = appClientsBySession.get(targetSessionId); return ws ? [ws] : [] })()
+    : Array.from(appClients)
+
+  for (const ws of targets) {
+    if (ws.readyState !== 1) continue
     for (const message of messages) {
       ws.send(JSON.stringify(message))
     }
@@ -315,8 +321,28 @@ app.get('/health', (c) => {
 })
 
 app.get('/dump-state', async (c) => {
-  await requestStateFromClients()
+  const sessionParam = c.req.query('session') ?? ''
+
+  if (sessionParam && !appClientsBySession.has(sessionParam)) {
+    return c.json({ ok: false, error: 'Session not found or not connected' }, 404)
+  }
+
+  await requestStateFromClients(sessionParam || undefined)
   await Bun.sleep(250)
+
+  if (sessionParam) {
+    const perClient = latestStatePerClient.get(sessionParam)
+    if (!perClient) {
+      return c.json({ ok: false, error: 'No state captured for this session' }, 404)
+    }
+    broadcastDashboard({ kind: 'state-updated', clientId: sessionParam, capturedAt: perClient.at })
+    return c.json({
+      ok: true,
+      sessionId: sessionParam,
+      stateFile: STATE_PATH,
+      capturedAt: perClient.at,
+    })
+  }
 
   if (latestState === null) {
     return c.json({ ok: false, error: 'No state captured yet' }, 404)
