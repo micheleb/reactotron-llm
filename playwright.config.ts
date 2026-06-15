@@ -62,5 +62,11 @@ export default defineConfig({
       use: { browserName: 'chromium' },
       dependencies: ['dashboard', 'sessions'],
     },
+    {
+      name: 'per-client-tabs',
+      testMatch: 'tests/per-client-tabs.spec.ts',
+      use: { browserName: 'chromium' },
+      dependencies: ['dashboard', 'copy-paste'],
+    },
   ],
 })

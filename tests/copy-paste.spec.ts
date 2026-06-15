@@ -25,18 +25,19 @@ async function seedEvents(page: Page, events: object[], appName = 'TestApp', pla
 
 async function openDashboard(page: Page): Promise<void> {
   await page.goto('/')
-  const responsePromise = page.waitForResponse(
-    (r) => r.url().includes('19090') && r.url().includes('/api/events'),
+  const healthPromise = page.waitForResponse(
+    (r) => r.url().includes('19090') && r.url().includes('/health'),
   )
   await page.locator('input').first().fill('http://localhost:19090')
-  await responsePromise
+  await healthPromise
+  await page.locator('input').nth(1).fill('ws://localhost:19092')
 }
 
 async function switchToHistory(page: Page): Promise<void> {
   const responsePromise = page.waitForResponse(
     (r) => r.url().includes('/api/sessions') && !r.url().includes('/events'),
   )
-  await page.getByRole('tab', { name: 'History' }).click()
+  await page.getByTestId('tab-browse-sessions').click()
   await responsePromise
 }
 

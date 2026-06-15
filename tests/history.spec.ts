@@ -27,19 +27,20 @@ async function seedEvents(page: Page, events: object[], appName = 'TestApp', pla
 /** Navigate to the dashboard and point it at the test API server. */
 async function openDashboard(page: Page): Promise<void> {
   await page.goto('/')
-  const responsePromise = page.waitForResponse(
-    (r) => r.url().includes('19090') && r.url().includes('/api/events'),
+  const healthPromise = page.waitForResponse(
+    (r) => r.url().includes('19090') && r.url().includes('/health'),
   )
   await page.locator('input').first().fill('http://localhost:19090')
-  await responsePromise
+  await healthPromise
+  await page.locator('input').nth(1).fill('ws://localhost:19092')
 }
 
-/** Switch to the History tab and wait for sessions to load. */
+/** Switch to the Browse Sessions tab and wait for sessions to load. */
 async function switchToHistory(page: Page): Promise<void> {
   const responsePromise = page.waitForResponse(
     (r) => r.url().includes('/api/sessions') && !r.url().includes('/events'),
   )
-  await page.getByRole('tab', { name: 'History' }).click()
+  await page.getByTestId('tab-browse-sessions').click()
   await responsePromise
 }
 
@@ -133,29 +134,27 @@ test.describe('Sessions API', () => {
 // ─── Dashboard History tab tests ─────────────────────────────────────────────
 
 test.describe('History tab UI', () => {
-  test('Live and History tabs are visible', async ({ page }) => {
+  test('Browse Sessions and Live placeholder tabs are visible when no clients connected', async ({ page }) => {
     await openDashboard(page)
-    await expect(page.getByRole('tab', { name: 'Live' })).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'History' })).toBeVisible()
+    await expect(page.getByTestId('tab-browse-sessions')).toBeVisible()
+    await expect(page.getByTestId('tab-live-placeholder')).toBeVisible()
   })
 
-  test('Live tab is selected by default', async ({ page }) => {
+  test('Live placeholder is default-selected when no clients', async ({ page }) => {
     await openDashboard(page)
-    await expect(page.getByRole('tab', { name: 'Live' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('heading', { name: /Waiting for a client to connect/i })).toBeVisible()
   })
 
-  test('Reset Logs and Dump State buttons are hidden on History tab', async ({ page }) => {
+  test('Reset Logs is visible on Browse Sessions tab', async ({ page }) => {
     await openDashboard(page)
-    await page.getByRole('tab', { name: 'History' }).click()
+    await switchToHistory(page)
+    await expect(page.getByTestId('reset-logs-btn')).toBeVisible()
+  })
 
-    await expect(page.getByRole('button', { name: /Reset Logs/i })).not.toBeVisible()
+  test('Dump State button is not visible on Browse Sessions tab', async ({ page }) => {
+    await openDashboard(page)
+    await switchToHistory(page)
     await expect(page.getByRole('button', { name: /Dump State/i })).not.toBeVisible()
-  })
-
-  test('Reset Logs and Dump State buttons are visible on Live tab', async ({ page }) => {
-    await openDashboard(page)
-    await expect(page.getByRole('button', { name: /Reset Logs/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Dump State/i })).toBeVisible()
   })
 })
 
@@ -347,22 +346,20 @@ test.describe('Session detail view', () => {
     await page.getByText(/\d+ events?/).first().click()
 
     // Tab bar should be hidden in session detail view
-    await expect(page.getByRole('tab', { name: 'Live' })).not.toBeVisible()
-    await expect(page.getByRole('tab', { name: 'History' })).not.toBeVisible()
+    await expect(page.getByTestId('tab-browse-sessions')).not.toBeVisible()
+    await expect(page.getByTestId('tab-live-placeholder')).not.toBeVisible()
   })
 })
 
 test.describe('Stats panel visibility', () => {
-  test('stats panel is visible on Live tab', async ({ page }) => {
+  test('stats panel is hidden on Live placeholder (no clients)', async ({ page }) => {
     await openDashboard(page)
-    await expect(page.getByText('App Clients')).toBeVisible()
-    await expect(page.getByText('Error Events')).toBeVisible()
+    await expect(page.getByText('App Clients')).not.toBeVisible()
   })
 
-  test('stats panel is hidden on History tab', async ({ page }) => {
+  test('stats panel is hidden on Browse Sessions tab', async ({ page }) => {
     await openDashboard(page)
-    await page.getByRole('tab', { name: 'History' }).click()
-
+    await switchToHistory(page)
     await expect(page.getByText('App Clients')).not.toBeVisible()
     await expect(page.getByText('Error Events')).not.toBeVisible()
   })

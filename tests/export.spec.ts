@@ -31,11 +31,12 @@ function parseJsonl(text: string): Record<string, unknown>[] {
 /** Navigate to the dashboard and point it at the test API server. */
 async function openDashboard(page: Page): Promise<void> {
   await page.goto('/')
-  const responsePromise = page.waitForResponse(
-    (r) => r.url().includes('19090') && r.url().includes('/api/events'),
+  const healthPromise = page.waitForResponse(
+    (r) => r.url().includes('19090') && r.url().includes('/health'),
   )
   await page.locator('input').first().fill('http://localhost:19090')
-  await responsePromise
+  await healthPromise
+  await page.locator('input').nth(1).fill('ws://localhost:19092')
 }
 
 // ─── API tests ───────────────────────────────────────────────────────────────
