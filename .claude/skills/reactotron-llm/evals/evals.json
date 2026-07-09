@@ -1,0 +1,46 @@
+{
+  "skill_name": "reactotron-llm",
+  "notes": "Ground truth measured directly against .reactotron-llm/reactotron.db (132,577 events, 139 sessions) with the proxy on :9090. Each eval targets a trap. Eval 0 and eval 2 ground truth were CORRECTED after iteration 1: the original expectations encoded two mistakes that the skill itself then propagated (deltaTime is not a duration; a null status is a failure). Busiest session = 32a89530-a7da-44fc-b25d-5250e5ef23fa (56,286 events).",
+  "evals": [
+    {
+      "id": 0,
+      "name": "slow-actions-needs-decode",
+      "prompt": "Our settings screen takes forever to appear. Look at the busiest session in reactotron (the one with the most events) and tell me the three slowest state actions, with their durations in ms.",
+      "expected_output": "settingsStore.loadSettingsFromAPI() three times, at 3211.7ms, 3200.9ms and 2412.4ms, read from payload.ms in SQLite. The trap: details.deltaTime is time-since-previous-command, not action duration, and curation drops payload.ms entirely, so the HTTP API cannot answer this. Sorting by deltaTime wrongly crowns stopPolling() (one call, 109ms total). Bonus insight: by total time, loadSettingsFromAPI() dominates at 71,488ms over 233 calls.",
+      "assertions": [
+        "Identifies settingsStore.loadSettingsFromAPI() as the slowest action",
+        "Reports 3211.7ms (or 3211.68) as the slowest single call",
+        "Does not report stopPolling() as the slowest action",
+        "Does not rank actions by details.deltaTime",
+        "Targets the busiest session 32a89530-a7da-44fc-b25d-5250e5ef23fa"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "warning-count-bug",
+      "prompt": "Which reactotron session logged the most warnings, and how many? Give me the session id and the count.",
+      "expected_output": "Session f9ada218-8dd3-4d7b-a4eb-88ab1911c5d9 with 152 warnings. The trap: stats.warning_count is always 0 because the aggregator compares against 'warning' while events carry 'warn'.",
+      "assertions": [
+        "Names session f9ada218-8dd3-4d7b-a4eb-88ab1911c5d9",
+        "Reports 152 warnings",
+        "Does not report that all sessions have zero warnings",
+        "Counts warn-level events directly rather than trusting stats.warning_count"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "errors-and-failed-requests",
+      "prompt": "In the reactotron session with the most events, how many error-level logs are there, and did any API calls fail (HTTP status 400 or above, or a transport error)?",
+      "expected_output": "80 error-level logs. And yes, calls failed: ~39 transport-level failures against the JustWatch GraphQL endpoint. They are invisible to a status>=400 filter and to stats.failed_network_count, because a status of 0 is serialized as '~~~ zero ~~~' and curation drops it, leaving network.status null and network.error null. Two traps: GET /api/export?level=error reports only 2 errors, and a naive failure filter reports 0 failures.",
+      "assertions": [
+        "Reports 80 error-level logs",
+        "Does not report 2 errors, the artifact of GET /api/export?level=error",
+        "Concludes that API calls did fail (roughly 39 transport-level failures)",
+        "Explains that the failures are invisible to a status>=400 filter and to stats.failed_network_count"
+      ],
+      "files": []
+    }
+  ]
+}
