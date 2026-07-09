@@ -47,7 +47,7 @@ The curation code populates `changed` when the app sends it, but **mobx-state-tr
 So a filter like `select((.changed // []) | index("isLoading"))` will match nothing and look like "no action ever touched that field". Check first:
 
 ```bash
-curl -s "$BASE/api/sessions/$SID/events" | jq '[.events[] | select(has("changed"))] | length'
+curl -s http://localhost:9090/api/sessions/$SID/events | jq '[.events[] | select(has("changed"))] | length'
 ```
 
 If that's 0, identify actions by `action.displayName` / `action.name` and inspect `action.payload` instead.
@@ -139,7 +139,7 @@ Attached to each session as `stats`, and to the export header.
 The dashboard renders this field in the session detail and comparison views, so it shows 0 there too. Don't read that as "no warnings". Count them yourself:
 
 ```bash
-curl -s "$BASE/api/sessions/$SID/events" | jq '[.events[] | select(.level == "warn")] | length'
+curl -s http://localhost:9090/api/sessions/$SID/events | jq '[.events[] | select(.level == "warn")] | length'
 ```
 
 `error_count` compares against `'error'`, which is the real string, and is correct.

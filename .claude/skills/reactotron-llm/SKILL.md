@@ -24,18 +24,14 @@ Two things to internalize before you start:
 
 **Everything here is read-only except two clearly marked endpoints** (bookmarking a session, and resetting the log). Reading events never changes what the app or the proxy is doing.
 
-Set a base URL once and reuse it:
-
-```bash
-BASE=http://localhost:9090
-```
+The proxy listens on `http://localhost:9090`. Every recipe below spells that out literally rather than hiding it in a `$BASE` variable — permission rules match the text of the command you run, so an allowlist entry for `curl -s http://localhost:9090…` only fires when the URL is actually there. Query strings are written with `\?` and `\&` for the same reason: it keeps the argument unquoted so the prefix stays visible.
 
 The web dashboard runs on `:5173` and its live-push WebSocket on `:9092`. You don't need either.
 
 ## Start here: is the proxy up?
 
 ```bash
-curl -s "$BASE/health" | jq '{ok, clients, latestStateAt}'
+curl -s http://localhost:9090/health | jq '{ok, clients, latestStateAt}'
 ```
 
 - `ok: true` — the proxy is running. Go on.
@@ -59,13 +55,13 @@ One more failure mode: if something *is* listening on 9090 but `/health` returns
 Sessions come back newest first, so `.sessions[0]` is the most recent one.
 
 ```bash
-SID=$(curl -s "$BASE/api/sessions" | jq -r '.sessions[0].id')
+SID=$(curl -s http://localhost:9090/api/sessions | jq -r '.sessions[0].id')
 ```
 
 To see what's available before choosing:
 
 ```bash
-curl -s "$BASE/api/sessions" | jq -r '.sessions[] |
+curl -s http://localhost:9090/api/sessions | jq -r '.sessions[] |
   "\(.id[0:8])  \(.app_name // "?")/\(.platform // "?")  events=\(.event_count)  errors=\(.stats.error_count)  \(if .disconnected_at then "closed" else "LIVE" end)"'
 ```
 
@@ -76,7 +72,7 @@ A session with `disconnected_at: null` is still live. `event_count` includes the
 ## Read a session's events
 
 ```bash
-curl -s "$BASE/api/sessions/$SID/events" | jq '.total'
+curl -s http://localhost:9090/api/sessions/$SID/events | jq '.total'
 ```
 
 This returns **every** curated event for the session in chronological order, with no limit or offset. The count lives under `.total`, not `.count`. Busy sessions can be large, so pipe straight into a `jq` filter rather than dumping the whole thing into context.
@@ -94,7 +90,7 @@ A `decode` filter ships with this skill. Compose it into any `jq` program:
 ```bash
 DECODE=$(cat ~/.claude/skills/reactotron-llm/scripts/decode.jq)
 
-curl -s "$BASE/api/sessions/$SID/events" \
+curl -s http://localhost:9090/api/sessions/$SID/events \
   | jq "$DECODE"' .events[] | decode | select(.details.important == false)'
 ```
 
@@ -110,11 +106,11 @@ Filter in `jq`, not with a server-side `level` parameter:
 
 ```bash
 # Errors in this session
-curl -s "$BASE/api/sessions/$SID/events" \
+curl -s http://localhost:9090/api/sessions/$SID/events \
   | jq -r '.events[] | select(.level == "error") | "\(.ts)  \(.message)"'
 
 # Warnings — the level string is "warn", never "warning"
-curl -s "$BASE/api/sessions/$SID/events" \
+curl -s http://localhost:9090/api/sessions/$SID/events \
   | jq -r '.events[] | select(.level == "warn") | "\(.ts)  \(.message)"'
 ```
 
@@ -125,24 +121,24 @@ curl -s "$BASE/api/sessions/$SID/events" \
 ```bash
 # Every failed call: HTTP >= 400, a transport error, OR no response at all.
 # The last clause is the one that matters — see the warning below.
-curl -s "$BASE/api/sessions/$SID/events" | jq -r '.events[]
+curl -s http://localhost:9090/api/sessions/$SID/events | jq -r '.events[]
   | select(.network)
   | select((.network.status // 0) >= 400 or (.network.error // "") != "" or .network.status == null)
   | "\(.network.status // "NO RESPONSE")  \(.network.method)  \(.network.url)  \(.network.durationMs)ms"'
 
 # Requests whose URL contains a substring
-curl -s "$BASE/api/sessions/$SID/events" | jq -r --arg u graphql '.events[]
+curl -s http://localhost:9090/api/sessions/$SID/events | jq -r --arg u graphql '.events[]
   | select((.network.url // "") | ascii_downcase | contains($u))
   | "\(.network.status)  \(.network.method)  \(.network.url)"'
 
 # Slowest 10 requests
-curl -s "$BASE/api/sessions/$SID/events" | jq -r '[.events[] | select(.network.durationMs != null)]
+curl -s http://localhost:9090/api/sessions/$SID/events | jq -r '[.events[] | select(.network.durationMs != null)]
   | sort_by(-.network.durationMs) | .[0:10][]
   | "\(.network.durationMs)ms  \(.network.method)  \(.network.url)"'
 
 # Full request/response bodies for one endpoint — usually the answer to "why did that fail".
 # Bodies are sometimes a sentinel STRING rather than an object, so guard before indexing.
-curl -s "$BASE/api/sessions/$SID/events" | jq '.events[]
+curl -s http://localhost:9090/api/sessions/$SID/events | jq '.events[]
   | select((.network.url // "") | test("checkout"))
   | {url: .network.url, status: .network.status, error: .network.error,
      request: .network.requestBody, response: .network.responseBody}'
@@ -158,18 +154,18 @@ curl -s "$BASE/api/sessions/$SID/events" | jq '.events[]
 
 ```bash
 # Which actions ran, and how often?
-curl -s "$BASE/api/sessions/$SID/events" | jq -r '[.events[]
+curl -s http://localhost:9090/api/sessions/$SID/events | jq -r '[.events[]
   | select(.type == "state.action.complete") | .action.displayName]
   | group_by(.) | map({n: length, name: .[0]}) | sort_by(-.n)[]
   | "\(.n)  \(.name)"'
 
 # Every run of one action, with its arguments
-curl -s "$BASE/api/sessions/$SID/events" | jq --arg a loadSettingsFromAPI '.events[]
+curl -s http://localhost:9090/api/sessions/$SID/events | jq --arg a loadSettingsFromAPI '.events[]
   | select(.type == "state.action.complete" and .action.name == $a)
   | {ts, action: .action.displayName, payload: .action.payload}'
 
 # What kinds of events does this session even contain?
-curl -s "$BASE/api/sessions/$SID" | jq '.session.stats.event_counts'
+curl -s http://localhost:9090/api/sessions/$SID | jq '.session.stats.event_counts'
 ```
 
 That last histogram is the fastest way to orient yourself in an unfamiliar session before you start filtering.
@@ -215,11 +211,11 @@ The events table is `raw_events`, not `events`, and its columns are `id, session
 A snapshot is pulled on demand: the proxy asks the connected app for its current store, waits briefly, and writes it to disk. So you request, then read.
 
 ```bash
-curl -s "$BASE/dump-state?session=$SID" | jq '{ok, capturedAt}'
-curl -s "$BASE/api/state" | jq '.state | keys'
+curl -s http://localhost:9090/dump-state\?session=$SID | jq '{ok, capturedAt}'
+curl -s http://localhost:9090/api/state | jq '.state | keys'
 
 # Reading actual values out of the snapshot: decode first
-curl -s "$BASE/api/state" | jq "$DECODE"' .state | decode | .settingsStore'
+curl -s http://localhost:9090/api/state | jq "$DECODE"' .state | decode | .settingsStore'
 ```
 
 Requesting a dump only works for a session that is **currently connected** — a closed session returns 404, because there's no app left to ask.
@@ -231,12 +227,12 @@ Requesting a dump only works for a session that is **currently connected** — a
 Useful for "this worked yesterday" — diff a good run against a bad one.
 
 ```bash
-curl -s "$BASE/api/sessions/compare?a=$S1&b=$S2" | jq '.by_type
+curl -s http://localhost:9090/api/sessions/compare\?a=$S1\&b=$S2 | jq '.by_type
   | to_entries
   | map({type: .key, a: .value.a_count, b: .value.b_count, delta: (.value.b_count - .value.a_count)})
   | sort_by(-(.a + .b))'
 
-curl -s "$BASE/api/sessions/compare?a=$S1&b=$S2" | jq '{
+curl -s http://localhost:9090/api/sessions/compare\?a=$S1\&b=$S2 | jq '{
   a: {errors: .sessions.a.stats.error_count, failed: .sessions.a.stats.failed_network_count, p95: .sessions.a.stats.latency.p95},
   b: {errors: .sessions.b.stats.error_count, failed: .sessions.b.stats.failed_network_count, p95: .sessions.b.stats.latency.p95}}'
 ```
@@ -248,8 +244,8 @@ curl -s "$BASE/api/sessions/compare?a=$S1&b=$S2" | jq '{
 The first line is a session header (`_type: "session"` with metadata and stats); every line after it is one event, oldest first.
 
 ```bash
-curl -s "$BASE/api/export?session=$SID" | head -1 | jq .
-curl -s "$BASE/api/export?session=$SID&type=log,api.response&limit=5000" -o session.jsonl
+curl -s http://localhost:9090/api/export\?session=$SID | head -1 | jq .
+curl -s http://localhost:9090/api/export\?session=$SID\&type=log,api.response\&limit=5000 -o session.jsonl
 ```
 
 `type=` is a comma-separated exact-match filter applied in SQL — pass the same type strings you see on events; they're stored verbatim and never renamed. Omitting `session=` exports the most recent session. `limit` is clamped to 1..5000 here (`/api/events` clamps to 1..2000 — the two endpoints differ).
@@ -261,9 +257,9 @@ curl -s "$BASE/api/export?session=$SID&type=log,api.response&limit=5000" -o sess
 There is **no streaming or server-sent-events endpoint**. Live push exists only on the dashboard's WebSocket (`ws://localhost:9092`), which is awkward to consume from a shell. To follow a session, poll — `/api/sessions/:id/events` returns the full history each call, so keep the last timestamp you saw and ask for what's newer:
 
 ```bash
-LAST_TS=$(curl -s "$BASE/api/sessions/$SID/events" | jq -r '.events[-1].ts')
+LAST_TS=$(curl -s http://localhost:9090/api/sessions/$SID/events | jq -r '.events[-1].ts')
 # ... reproduce the bug in the app ...
-curl -s "$BASE/api/sessions/$SID/events" | jq --arg since "$LAST_TS" '[.events[] | select(.ts > $since)]'
+curl -s http://localhost:9090/api/sessions/$SID/events | jq --arg since "$LAST_TS" '[.events[] | select(.ts > $since)]'
 ```
 
 A cleaner way to isolate a repro is to clear the log first — see below, and read the warning before you do.
@@ -273,14 +269,14 @@ A cleaner way to isolate a repro is to clear the log first — see below, and re
 Bookmarking is harmless and reversible. It marks a session as worth keeping, and the dashboard can filter to bookmarked sessions:
 
 ```bash
-curl -s -X PATCH "$BASE/api/sessions/$SID" -H 'content-type: application/json' -d '{"is_important": true}'
-curl -s "$BASE/api/sessions?is_important=true" | jq -r '.sessions[].id'
+curl -s -X PATCH http://localhost:9090/api/sessions/$SID -H 'content-type: application/json' -d '{"is_important": true}'
+curl -s http://localhost:9090/api/sessions\?is_important=true | jq -r '.sessions[].id'
 ```
 
 Resetting is not:
 
 ```bash
-curl -s -X POST "$BASE/api/events/reset"   # DESTRUCTIVE
+curl -s -X POST http://localhost:9090/api/events/reset   # DESTRUCTIVE
 ```
 
 > `POST /api/events/reset` deletes **every event and every session**, not just the current one, and there is no undo. The user may be sitting on a session they spent an hour reproducing. Confirm with AskUserQuestion before you call it, every time, even when clearing the log is the obvious way to isolate a repro. Suggesting the user reset is fine; deciding for them is not.

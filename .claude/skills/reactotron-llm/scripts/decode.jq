@@ -1,7 +1,7 @@
 # Reactotron serializes some primitives as sentinel strings ("~~~ false ~~~").
 # `decode` walks any value and restores them. Compose it into a jq program:
 #   DECODE=$(cat ~/.claude/skills/reactotron-llm/scripts/decode.jq)
-#   curl -s "$BASE/api/sessions/$SID/events" | jq "$DECODE"' .events[] | decode | ...'
+#   curl -s http://localhost:9090/api/sessions/$SID/events | jq "$DECODE"' .events[] | decode | ...'
 def decode: walk(
   if type == "string" then
     if   . == "~~~ false ~~~"                          then false
